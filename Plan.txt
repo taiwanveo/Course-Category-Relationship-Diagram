@@ -1,0 +1,225 @@
+【互動教學簡報製作器】
+我想請你幫我設計並實作一個「互動教學簡報製作器」，包含 Editor（編輯器）與 Player（播放器）兩個部分。
+這是一個給老師使用的工具，可以用拖拉方式建立互動簡報，並匯出成可分享網址的網頁簡報（使用 reveal.js 播放）。
+請依照以下完整規格設計系統架構、資料結構與功能，不要自行簡化或更改資料格式。
+________________________________________
+🎯 一、系統目標
+建立一個 Web App，包含：
+1️⃣ Editor（給老師用）
+功能：
+•	拖曳元件到 16:9 畫布
+•	編輯文字、圖片、連結、程式碼區塊、互動題目
+•	可設定樣式（字型、顏色、背景）
+•	有「樣式預設」（Tips / Caution / Alert 等）
+•	管理章節與頁面（Chapter / Slide）
+•	支援：
+o	匯出成專案檔（可再匯入繼續編輯）
+o	匯出成 Player 靜態網站
+2️⃣ Player（給學生用）
+功能：
+•	使用 reveal.js 播放投影片
+•	支援鍵盤方向鍵、滑鼠點擊翻頁
+•	底部顯示：
+o	目前章節
+o	目前頁碼
+o	可點擊跳轉章節/頁面
+•	支援互動元件：
+o	單選題（答對綠色、錯誤紅色、可重做）
+o	拖曳排序（拖曳中淡藍色，正確綠色，錯誤紅色，可重做）
+•	不需要登入、不需要資料庫、不需要即時同步（Phase 1 不做匿名提問牆）
+________________________________________
+🧠 二、核心設計原則
+•	整個專案資料必須存在一個 project.json 中（Single Source of Truth）
+•	Editor 編輯的是 JSON
+•	Player 讀 JSON 並渲染成 reveal.js 投影片
+•	匯出後必須能匯入再繼續編輯（版面與內容完全一致）
+________________________________________
+🗂️ 三、Project JSON Schema（所有資料必須遵守）
+請建立並嚴格依照此資料結構讀寫資料：
+{
+  "version": "1.0",
+  "projectId": "uuid",
+  "title": "課程名稱",
+  "theme": {
+    "palette": {
+      "bg": "#0b0b0b",
+      "text": "#ffffff",
+      "primary": "#4aa3ff",
+      "success": "#34c759",
+      "warning": "#ffcc00",
+      "danger": "#ff3b30"
+    },
+    "fonts": {
+      "heading": "Noto Sans TC",
+      "body": "Noto Sans TC",
+      "mono": "monospace"
+    }
+  },
+  "stylePresets": {
+    "tipBox": { "fill": "#d7f5dd", "color": "#0b3d1a" },
+    "cautionBox": { "fill": "#fff2cc", "color": "#5a4100" },
+    "alertBox": { "fill": "#ffd6d6", "color": "#5a0b0b" }
+  },
+  "chapters": [
+    {
+      "id": "ch1",
+      "title": "第一章",
+      "slides": [
+        {
+          "id": "s1",
+          "title": "投影片標題",
+          "canvas": { "w": 1280, "h": 720 },
+          "background": { "type": "solid", "value": "#000000" },
+          "components": [
+            {
+              "id": "c1",
+              "type": "text",
+              "x": 100,
+              "y": 100,
+              "w": 600,
+              "h": 100,
+              "props": { "text": "Hello world" },
+              "style": { "fontSize": 36, "color": "#ffffff" }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+________________________________________
+🧩 四、元件（Components）規格
+必須支援以下元件：
+1. Text（文字方塊）
+•	可設定字體、大小、顏色、背景色、圓角
+•	可套用 preset（Tips / Caution / Alert）
+2. Image（圖片）
+•	支援 jpg / png / gif
+•	拖曳、縮放
+•	保持比例選項
+•	存在 assets 目錄並以 assetId 引用
+3. Link（超連結）
+•	顯示文字或按鈕
+•	點擊開新分頁
+4. Code（程式碼）
+•	顯示程式碼文字
+•	有「Copy」按鈕
+•	可指定語言名稱
+5. Quiz Single（單選題）
+•	題目
+•	選項
+•	正確答案 index
+•	點擊後顯示：
+o	正確 → 綠色
+o	錯誤 → 紅色
+•	可重作
+•	不阻止翻頁
+6. Drag Order（拖曳排序）
+•	題目
+•	詞條 items
+•	正確順序 correctOrder
+•	拖曳中：淡藍色
+•	全對：綠色
+•	有錯：紅色
+•	可重做
+•	不阻止翻頁
+________________________________________
+🧱 五、Editor 功能規格
+畫布
+•	固定 1280x720 比例（16:9）
+•	元件可：
+o	拖曳移動
+o	四角縮放
+o	調整層級（z-index）
+左側工具列
+•	新增元件：
+o	Text
+o	Image
+o	Link
+o	Code
+o	Quiz Single
+o	Drag Order
+o	Tips / Caution / Alert（Text + preset）
+右側屬性面板
+依元件類型顯示設定：
+•	文字：字體、大小、顏色、背景
+•	圖片：替換圖片、比例
+•	Code：內容、語言
+•	Quiz：題目、選項、答案
+•	DragOrder：題目、items、正確順序
+章節與頁面管理
+•	新增/刪除/重新排序 Chapter
+•	新增/刪除/重新排序 Slide
+•	每頁可命名 title
+________________________________________
+📦 六、匯入 / 匯出（非常重要）
+匯出專案檔（可再編輯）
+格式：.itslide（zip）
+內容：
+/project.json
+/assets/*
+/meta.json
+匯入專案檔
+•	上傳 .itslide
+•	解壓
+•	還原 project.json 與所有 assets
+•	畫布內容必須與匯出前完全一致
+________________________________________
+▶️ 七、Player 規格（reveal.js）
+•	讀取 project.json
+•	轉換成 <section> slides
+•	初始化 reveal.js
+•	支援：
+o	方向鍵翻頁
+o	滑鼠點擊翻頁
+•	底部顯示：
+o	Chapter title
+o	Page number
+•	可點擊跳轉章節或頁面
+________________________________________
+🏗️ 八、專案結構建議
+/apps/editor
+/apps/player
+/packages/shared (schema)
+/packages/runtime (渲染與互動邏輯)
+________________________________________
+🧪 九、驗收條件（必須通過）
+1.	在 Editor 建立簡報（含文字、圖片、Quiz、Drag）
+2.	匯出 .itslide
+3.	重新整理
+4.	匯入 .itslide
+5.	版面與內容完全相同
+6.	匯出 Player Site zip
+7.	用 reveal.js 成功播放
+8.	互動題可作答並顯示顏色回饋
+9.	底部章節/頁面導覽可跳轉
+________________________________________
+🛠️ 十、技術建議
+•	Editor：React + Vite 或 Vue + Vite
+•	Player：reveal.js
+•	拖曳排序：Interact.js
+•	儲存：project.json + assets
+•	不做登入、不做 Supabase、不做後端（Phase 1）
+________________________________________
+🚀 任務執行方式（請依序產生）
+請分階段產生程式碼：
+Phase 1
+•	建立 Editor
+•	支援 Text / Image
+•	支援 project.json
+•	匯出 / 匯入
+Phase 2
+•	Player（reveal.js）
+•	底部章節/頁面導覽
+Phase 3
+•	Quiz Single
+•	Drag Order（Interact.js）
+________________________________________
+📌 強制要求
+•	所有狀態必須存在 project.json
+•	不可硬編 DOM
+•	匯入匯出必須可逆
+•	程式碼需清楚分模組
+•	每個階段請提供可執行專案
+________________________________________
+

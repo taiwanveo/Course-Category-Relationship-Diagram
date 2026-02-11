@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>互動教學簡報製作器 - Editor</title>
+    <!-- 引入 Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Klee+One&family=IBM+Plex+Sans+JP:wght@400;500;700&family=Zen+Maru+Gothic:wght@400;500;700&family=Zen+Old+Mincho:wght@400;500;700&family=Yusei+Magic&display=swap" rel="stylesheet">
+    <!-- Prism.js 程式碼語法高亮 -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" crossorigin>
+    <link rel="stylesheet" href="editor.css">
+</head>
+<body>
+    <div id="app">
+        <!-- 頂部工具列 -->
+        <header class="toolbar">
+            <div class="toolbar-left">
+                <h1>互動教學簡報製作器</h1>
+                <button id="btn-welcome-edit" class="btn btn-welcome" title="編輯匯出檔開啟時顯示的歡迎頁">歡迎頁編輯</button>
+            </div>
+            <div class="toolbar-right">
+                <button id="btn-new" class="btn btn-toolbar">開新檔案</button>
+                <button id="btn-import" class="btn btn-toolbar">匯入編輯存檔</button>
+                <button id="btn-export" class="btn btn-toolbar">匯出編輯存檔</button>
+                <button id="btn-export-player" class="btn btn-toolbar">匯出播放簡報</button>
+                <button id="btn-preview" class="btn btn-toolbar btn-preview" title="切換到播放器預覽目前編輯結果">播放</button>
+            </div>
+        </header>
+
+        <div class="main-container">
+            <!-- 左側工具列 -->
+            <aside class="sidebar-left">
+                <h2>元件</h2>
+                <div class="component-list">
+                    <button class="component-btn" data-type="text">
+                        <span class="icon">📝</span>
+                        <span>文字</span>
+                    </button>
+                    <button class="component-btn" data-type="image">
+                        <span class="icon">🖼️</span>
+                        <span>圖片</span>
+                    </button>
+                    <button class="component-btn" data-type="link">
+                        <span class="icon">🔗</span>
+                        <span>連結</span>
+                    </button>
+                    <button class="component-btn" data-type="embed">
+                        <span class="icon">🌐</span>
+                        <span>內嵌網頁</span>
+                    </button>
+                    <button class="component-btn" data-type="table">
+                        <span class="icon">📋</span>
+                        <span>表格</span>
+                    </button>
+                    <button class="component-btn" data-type="code">
+                        <span class="icon">💻</span>
+                        <span>程式碼</span>
+                    </button>
+                    <button class="component-btn" data-type="quiz-single">
+                        <span class="icon">❓</span>
+                        <span>單選題</span>
+                    </button>
+                    <button class="component-btn" data-type="quiz-multiple">
+                        <span class="icon">☑️</span>
+                        <span>複選題</span>
+                    </button>
+                    <button class="component-btn" data-type="drag-order">
+                        <span class="icon">↕️</span>
+                        <span>拖曳排序</span>
+                    </button>
+                    <button class="component-btn" data-type="video">
+                        <span class="icon">🎬</span>
+                        <span>影片</span>
+                    </button>
+                    <button class="component-btn" data-type="list">
+                        <span class="icon">📌</span>
+                        <span>列表</span>
+                    </button>
+                    <button class="component-btn" data-type="fill-blank">
+                        <span class="icon">✏️</span>
+                        <span>填空題</span>
+                    </button>
+                    <button class="component-btn" data-type="chart">
+                        <span class="icon">📊</span>
+                        <span>圖表</span>
+                    </button>
+                    <button class="component-btn" data-type="matching">
+                        <span class="icon">🔀</span>
+                        <span>配對題</span>
+                    </button>
+                    <button class="component-btn" data-type="shape">
+                        <span class="icon">⬛</span>
+                        <span>形狀</span>
+                    </button>
+                    <button class="component-btn" data-type="progress">
+                        <span class="icon">📈</span>
+                        <span>進度</span>
+                    </button>
+                    <button class="component-btn" data-type="audio">
+                        <span class="icon">🔊</span>
+                        <span>音訊</span>
+                    </button>
+                    <button class="component-btn" data-type="timeline">
+                        <span class="icon">📅</span>
+                        <span>時間軸</span>
+                    </button>
+                    <button class="component-btn" data-type="collapsible">
+                        <span class="icon">📂</span>
+                        <span>可摺疊</span>
+                    </button>
+                    <button class="component-btn" data-type="timer">
+                        <span class="icon">⏱️</span>
+                        <span>計時器</span>
+                    </button>
+                    <button class="component-btn preset-btn preset-btn-tip" data-preset="tipBox">
+                        <span class="icon">💡</span>
+                        <span>Tip</span>
+                    </button>
+                    <button class="component-btn preset-btn preset-btn-caution" data-preset="cautionBox">
+                        <span class="icon">⚠️</span>
+                        <span>Caution</span>
+                    </button>
+                    <button class="component-btn preset-btn preset-btn-alert" data-preset="alertBox">
+                        <span class="icon">🚨</span>
+                        <span>Alert</span>
+                    </button>
+                    <button class="component-btn preset-btn preset-btn-blue" data-preset="buttonBlue">
+                        <span class="icon">🔵</span>
+                        <span>藍底白字</span>
+                    </button>
+                    <button class="component-btn preset-btn preset-btn-green" data-preset="buttonGreen">
+                        <span class="icon">🟢</span>
+                        <span>綠底白字</span>
+                    </button>
+                    <button class="component-btn preset-btn preset-btn-yellow" data-preset="buttonYellow">
+                        <span class="icon">🟡</span>
+                        <span>黃底白字</span>
+                    </button>
+                </div>
+            </aside>
+
+            <!-- 中間：預覽縮圖 + 畫布區域 -->
+            <main class="canvas-area">
+                <!-- 章節與頁面管理 + 統計 -->
+                <div class="chapter-controls">
+                    <span class="chapter-stats" id="chapter-stats">共 1 章、1 頁</span>
+                    <button id="btn-add-chapter" class="btn btn-small">+ 新增章節</button>
+                    <select id="chapter-select"></select>
+                    <button id="btn-add-slide" class="btn btn-small">+ 新增頁面</button>
+                    <select id="slide-select"></select>
+                    <input type="text" id="slide-name-input" class="slide-name-input" placeholder="頁面名稱（選填）" maxlength="50">
+                </div>
+
+                <div class="canvas-area-inner">
+                    <!-- 左側：預覽縮圖 -->
+                    <div class="thumbnail-panel" id="thumbnail-panel">
+                        <div class="thumbnail-list" id="thumbnail-list"></div>
+                    </div>
+                    <!-- 右側：畫布容器（填滿可用空間，畫布依比例放大至填滿） -->
+                    <div class="canvas-container">
+                        <div class="canvas-wrapper" id="canvas-wrapper">
+                            <div id="canvas" class="canvas">
+                                <!-- 元件會動態插入這裡 -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+
+            <!-- 右側屬性面板 -->
+            <aside class="sidebar-right">
+                <h2>屬性</h2>
+                <div id="property-panel" class="property-panel">
+                    <p class="placeholder">請選擇元件以編輯屬性</p>
+                </div>
+            </aside>
+        </div>
+
+        <!-- 歡迎頁編輯彈窗 -->
+        <div id="welcome-edit-overlay" class="welcome-edit-overlay" style="display: none;">
+            <div class="welcome-edit-modal">
+                <h2>歡迎頁編輯</h2>
+                <p class="welcome-edit-desc">匯出成單一播放檔後，開啟檔案時會先顯示此頁，再點「播放」進入全螢幕簡報。</p>
+                <div class="welcome-edit-field">
+                    <label>背景圖片</label>
+                    <div class="welcome-edit-bg-row">
+                        <input type="file" id="welcome-bg-input" accept="image/*" style="display: none;">
+                        <button type="button" id="welcome-bg-btn" class="btn">選擇圖片</button>
+                        <button type="button" id="welcome-bg-clear" class="btn">清除</button>
+                    </div>
+                    <div id="welcome-bg-preview" class="welcome-bg-preview"></div>
+                </div>
+                <div class="welcome-edit-field">
+                    <label>說明文字（此課程簡報在教什麼）</label>
+                    <textarea id="welcome-description" rows="4" placeholder="例如：本簡報介紹 Python 基礎語法與實作範例…"></textarea>
+                </div>
+                <div class="welcome-edit-actions">
+                    <button type="button" id="welcome-edit-save" class="btn btn-primary">儲存</button>
+                    <button type="button" id="welcome-edit-cancel" class="btn">取消</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 隱藏的檔案輸入 -->
+        <input type="file" id="file-import" accept=".itslide" style="display: none;">
+        <input type="file" id="file-image" accept="image/*" style="display: none;">
+        <input type="file" id="file-link-thumbnail" accept="image/*" style="display: none;">
+        <input type="file" id="file-video" accept="video/*" style="display: none;">
+        <input type="file" id="file-audio" accept="audio/*" style="display: none;">
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+    <!-- Prism.js 核心 + 常用語言 -->
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js" crossorigin></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-clike.min.js" crossorigin></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-markup.min.js" crossorigin></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-javascript.min.js" crossorigin></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-typescript.min.js" crossorigin></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js" crossorigin></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-css.min.js" crossorigin></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-json.min.js" crossorigin></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js" crossorigin></script>
+    <script src="editor.js"></script>
+</body>
+</html>

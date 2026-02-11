@@ -1,0 +1,634 @@
+{
+  "version": "1.0",
+  "projectId": "5a23785a-2753-4bdd-add4-a832298a2be3",
+  "title": "新專案",
+  "theme": {
+    "palette": {
+      "bg": "#F9F7F5",
+      "text": "#000000",
+      "primary": "#4aa3ff",
+      "success": "#34c759",
+      "warning": "#ffcc00",
+      "danger": "#ff3b30"
+    },
+    "fonts": {
+      "heading": "'Noto Sans TC', 'Microsoft JhengHei', 'PMingLiU', sans-serif",
+      "body": "'Noto Sans TC', 'Microsoft JhengHei', 'PMingLiU', sans-serif",
+      "mono": "monospace"
+    }
+  },
+  "stylePresets": {
+    "tipBox": {
+      "fill": "#d7f5dd",
+      "color": "#0b3d1a"
+    },
+    "cautionBox": {
+      "fill": "#fff2cc",
+      "color": "#5a4100"
+    },
+    "alertBox": {
+      "fill": "#ffd6d6",
+      "color": "#5a0b0b"
+    }
+  },
+  "chapters": [
+    {
+      "id": "ch1",
+      "title": "第1章",
+      "slides": [
+        {
+          "id": "s1",
+          "title": "第1頁",
+          "canvas": {
+            "w": 1280,
+            "h": 720
+          },
+          "background": {
+            "type": "solid",
+            "value": "#F9F7F5"
+          },
+          "components": [
+            {
+              "id": "c1",
+              "type": "text",
+              "x": 100,
+              "y": 100,
+              "w": 400,
+              "h": 60,
+              "props": {
+                "text": "1-1"
+              },
+              "style": {
+                "fontSize": "24px",
+                "color": "#000000",
+                "fontFamily": "'Noto Sans TC', 'Microsoft JhengHei', 'PMingLiU', sans-serif"
+              }
+            }
+          ]
+        },
+        {
+          "id": "s1770003671165",
+          "title": "第2頁",
+          "canvas": {
+            "w": 1280,
+            "h": 720
+          },
+          "background": {
+            "type": "solid",
+            "value": "#F9F7F5"
+          },
+          "components": [
+            {
+              "id": "c2",
+              "type": "text",
+              "x": 100,
+              "y": 100,
+              "w": 400,
+              "h": 60,
+              "props": {
+                "text": "1-2"
+              },
+              "style": {
+                "fontSize": "24px",
+                "color": "#000000",
+                "fontFamily": "'Noto Sans TC', 'Microsoft JhengHei', 'PMingLiU', sans-serif"
+              }
+            }
+          ]
+        },
+        {
+          "id": "s1770003680547",
+          "title": "第3頁",
+          "canvas": {
+            "w": 1280,
+            "h": 720
+          },
+          "background": {
+            "type": "solid",
+            "value": "#F9F7F5"
+          },
+          "components": [
+            {
+              "id": "c3",
+              "type": "text",
+              "x": 100,
+              "y": 100,
+              "w": 400,
+              "h": 60,
+              "props": {
+                "text": "1-3"
+              },
+              "style": {
+                "fontSize": "24px",
+                "color": "#000000",
+                "fontFamily": "'Noto Sans TC', 'Microsoft JhengHei', 'PMingLiU', sans-serif"
+              }
+            }
+          ]
+        },
+        {
+          "id": "s1770003691536",
+          "title": "第4頁",
+          "canvas": {
+            "w": 1280,
+            "h": 720
+          },
+          "background": {
+            "type": "solid",
+            "value": "#F9F7F5"
+          },
+          "components": [
+            {
+              "id": "c4",
+              "type": "text",
+              "x": 303.11223548228344,
+              "y": 95.81557066108924,
+              "w": 400,
+              "h": 60,
+              "props": {
+                "text": "1-4"
+              },
+              "style": {
+                "fontSize": "24px",
+                "color": "#000000",
+                "fontFamily": "'Noto Sans TC', 'Microsoft JhengHei', 'PMingLiU', sans-serif"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ch1770003710539",
+      "title": "第2章",
+      "slides": [
+        {
+          "id": "s1770003710539",
+          "title": "第1頁",
+          "canvas": {
+            "w": 1280,
+            "h": 720
+          },
+          "background": {
+            "type": "solid",
+            "value": "#F9F7F5"
+          },
+          "components": [
+            {
+              "id": "c5",
+              "type": "image",
+              "x": 100,
+              "y": 100,
+              "w": 300,
+              "h": 200,
+              "props": {
+                "assetId": "asset_1770003724044_u0n2m0mto",
+                "keepAspectRatio": true
+              },
+              "style": {}
+            }
+          ]
+        },
+        {
+          "id": "s1770003726765",
+          "title": "第2頁",
+          "canvas": {
+            "w": 1280,
+            "h": 720
+          },
+          "background": {
+            "type": "solid",
+            "value": "#F9F7F5"
+          },
+          "components": [
+            {
+              "id": "c6",
+              "type": "image",
+              "x": 100,
+              "y": 100,
+              "w": 300,
+              "h": 200,
+              "props": {
+                "assetId": "asset_1770003734461_il80p4d1o",
+                "keepAspectRatio": true
+              },
+              "style": {}
+            }
+          ]
+        },
+        {
+          "id": "s1770003736627",
+          "title": "第3頁",
+          "canvas": {
+            "w": 1280,
+            "h": 720
+          },
+          "background": {
+            "type": "solid",
+            "value": "#F9F7F5"
+          },
+          "components": [
+            {
+              "id": "c7",
+              "type": "image",
+              "x": 100,
+              "y": 100,
+              "w": 300,
+              "h": 200,
+              "props": {
+                "assetId": "asset_1770003741968_b2w2ht434",
+                "keepAspectRatio": true
+              },
+              "style": {}
+            }
+          ]
+        },
+        {
+          "id": "s1770003744134",
+          "title": "第4頁",
+          "canvas": {
+            "w": 1280,
+            "h": 720
+          },
+          "background": {
+            "type": "solid",
+            "value": "#F9F7F5"
+          },
+          "components": [
+            {
+              "id": "c8",
+              "type": "image",
+              "x": 68.87754265091863,
+              "y": 2.556773909120735,
+              "w": 579.7668553149606,
+              "h": 386.5112368766404,
+              "props": {
+                "assetId": "asset_1770003749832_7ndy5066m",
+                "keepAspectRatio": true
+              },
+              "style": {}
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ch1770003772724",
+      "title": "第3章",
+      "slides": [
+        {
+          "id": "s1770003772724",
+          "title": "第1頁",
+          "canvas": {
+            "w": 1280,
+            "h": 720
+          },
+          "background": {
+            "type": "solid",
+            "value": "#F9F7F5"
+          },
+          "components": [
+            {
+              "id": "c9",
+              "type": "code",
+              "x": 100,
+              "y": 100,
+              "w": 600,
+              "h": 200,
+              "props": {
+                "code": "console.log(\"Hello\");",
+                "language": "javascript"
+              },
+              "style": {
+                "fontSize": "14px",
+                "fontFamily": "monospace",
+                "backgroundColor": "#1e1e1e",
+                "color": "#d4d4d4",
+                "padding": "12px",
+                "borderRadius": "4px"
+              }
+            }
+          ]
+        },
+        {
+          "id": "s1770003777401",
+          "title": "第2頁",
+          "canvas": {
+            "w": 1280,
+            "h": 720
+          },
+          "background": {
+            "type": "solid",
+            "value": "#F9F7F5"
+          },
+          "components": [
+            {
+              "id": "c10",
+              "type": "code",
+              "x": 67.1259842519685,
+              "y": 9.718565452755906,
+              "w": 600,
+              "h": 200,
+              "props": {
+                "code": "console.log(\"Hello\");",
+                "language": "javascript"
+              },
+              "style": {
+                "fontSize": "14px",
+                "fontFamily": "monospace",
+                "backgroundColor": "#1e1e1e",
+                "color": "#d4d4d4",
+                "padding": "12px",
+                "borderRadius": "4px"
+              }
+            },
+            {
+              "id": "c11",
+              "type": "code",
+              "x": 143.0806061351706,
+              "y": 190.03488455544618,
+              "w": 600,
+              "h": 200,
+              "props": {
+                "code": "console.log(\"Hello\");",
+                "language": "javascript"
+              },
+              "style": {
+                "fontSize": "14px",
+                "fontFamily": "monospace",
+                "backgroundColor": "#1e1e1e",
+                "color": "#d4d4d4",
+                "padding": "12px",
+                "borderRadius": "4px"
+              }
+            }
+          ]
+        },
+        {
+          "id": "s1770003789611",
+          "title": "第3頁",
+          "canvas": {
+            "w": 1280,
+            "h": 720
+          },
+          "background": {
+            "type": "solid",
+            "value": "#F9F7F5"
+          },
+          "components": [
+            {
+              "id": "c12",
+              "type": "quiz-single",
+              "x": 25.256982037401574,
+              "y": 20.708456364829395,
+              "w": 581.4619217519685,
+              "h": 353.3296423884514,
+              "props": {
+                "question": "問題？",
+                "options": [
+                  "選項1",
+                  "選項2",
+                  "選項3"
+                ],
+                "correctIndex": 1
+              },
+              "style": {}
+            }
+          ]
+        },
+        {
+          "id": "s1770003797928",
+          "title": "第4頁",
+          "canvas": {
+            "w": 1280,
+            "h": 720
+          },
+          "background": {
+            "type": "solid",
+            "value": "#F9F7F5"
+          },
+          "components": [
+            {
+              "id": "c13",
+              "type": "drag-order",
+              "x": 87.84858923884514,
+              "y": 1.7374866715879265,
+              "w": 500,
+              "h": 400,
+              "props": {
+                "question": "請排序",
+                "items": [
+                  "項目1",
+                  "項目2",
+                  "項目3"
+                ],
+                "correctOrder": [
+                  1,
+                  2,
+                  3
+                ]
+              },
+              "style": {}
+            }
+          ]
+        },
+        {
+          "id": "s1770003804217",
+          "title": "第5頁",
+          "canvas": {
+            "w": 1280,
+            "h": 720
+          },
+          "background": {
+            "type": "solid",
+            "value": "#F9F7F5"
+          },
+          "components": [
+            {
+              "id": "c14",
+              "type": "link",
+              "x": 100,
+              "y": 100,
+              "w": 200,
+              "h": 55,
+              "props": {
+                "text": "連結文字",
+                "url": "https://example.com"
+              },
+              "style": {
+                "fontSize": "30px",
+                "color": "#000000",
+                "fontFamily": "'Noto Sans TC', 'Microsoft JhengHei', 'PMingLiU', sans-serif",
+                "textDecoration": "underline"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ch1770003826475",
+      "title": "第4章",
+      "slides": [
+        {
+          "id": "s1770003826475",
+          "title": "第1頁",
+          "canvas": {
+            "w": 1280,
+            "h": 720
+          },
+          "background": {
+            "type": "solid",
+            "value": "#F9F7F5"
+          },
+          "components": [
+            {
+              "id": "c15",
+              "type": "text",
+              "x": 100,
+              "y": 100,
+              "w": 400,
+              "h": 60,
+              "props": {
+                "text": "新文字"
+              },
+              "style": {
+                "fontSize": "24px",
+                "color": "#0b3d1a",
+                "fontFamily": "'Noto Sans TC', 'Microsoft JhengHei', 'PMingLiU', sans-serif",
+                "backgroundColor": "#d7f5dd",
+                "borderRadius": "8px",
+                "padding": "12px"
+              }
+            }
+          ]
+        },
+        {
+          "id": "s1770003829764",
+          "title": "第2頁",
+          "canvas": {
+            "w": 1280,
+            "h": 720
+          },
+          "background": {
+            "type": "solid",
+            "value": "#F9F7F5"
+          },
+          "components": [
+            {
+              "id": "c16",
+              "type": "text",
+              "x": 100,
+              "y": 100,
+              "w": 400,
+              "h": 60,
+              "props": {
+                "text": "新文字"
+              },
+              "style": {
+                "fontSize": "24px",
+                "color": "#5a4100",
+                "fontFamily": "'Noto Sans TC', 'Microsoft JhengHei', 'PMingLiU', sans-serif",
+                "backgroundColor": "#fff2cc",
+                "borderRadius": "8px",
+                "padding": "12px"
+              }
+            }
+          ]
+        },
+        {
+          "id": "s1770003838069",
+          "title": "第3頁",
+          "canvas": {
+            "w": 1280,
+            "h": 720
+          },
+          "background": {
+            "type": "solid",
+            "value": "#F9F7F5"
+          },
+          "components": [
+            {
+              "id": "c17",
+              "type": "text",
+              "x": 100,
+              "y": 100,
+              "w": 400,
+              "h": 60,
+              "props": {
+                "text": "新文字"
+              },
+              "style": {
+                "fontSize": "24px",
+                "color": "#5a0b0b",
+                "fontFamily": "'Noto Sans TC', 'Microsoft JhengHei', 'PMingLiU', sans-serif",
+                "backgroundColor": "#ffd6d6",
+                "borderRadius": "8px",
+                "padding": "12px"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ch1770003831901",
+      "title": "第5章",
+      "slides": [
+        {
+          "id": "s1770003831901",
+          "title": "第1頁",
+          "canvas": {
+            "w": 1280,
+            "h": 720
+          },
+          "background": {
+            "type": "solid",
+            "value": "#F9F7F5"
+          },
+          "components": [
+            {
+              "id": "c18",
+              "type": "image",
+              "x": 100,
+              "y": 100,
+              "w": 300,
+              "h": 200,
+              "props": {
+                "assetId": null,
+                "keepAspectRatio": true
+              },
+              "style": {}
+            },
+            {
+              "id": "c19",
+              "type": "image",
+              "x": 330.2197650098425,
+              "y": 188.3115208743438,
+              "w": 300,
+              "h": 200,
+              "props": {
+                "assetId": null,
+                "keepAspectRatio": true
+              },
+              "style": {}
+            },
+            {
+              "id": "c20",
+              "type": "image",
+              "x": 272.8122436843832,
+              "y": 0.904050812007874,
+              "w": 300,
+              "h": 200,
+              "props": {
+                "assetId": null,
+                "keepAspectRatio": true
+              },
+              "style": {}
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

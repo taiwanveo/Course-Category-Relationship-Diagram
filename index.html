@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>互動教學簡報製作器</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .container {
+            text-align: center;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 60px 40px;
+            border-radius: 20px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            max-width: 600px;
+        }
+        
+        h1 {
+            font-size: 32px;
+            color: #333;
+            margin-bottom: 20px;
+        }
+        
+        p {
+            font-size: 16px;
+            color: #666;
+            margin-bottom: 40px;
+            line-height: 1.6;
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+        }
+        
+        .btn {
+            padding: 15px 30px;
+            font-size: 18px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-family: 'Noto Sans TC', sans-serif;
+            transition: all 0.3s;
+            text-decoration: none;
+            display: inline-block;
+        }
+        
+        .btn-primary {
+            background: #4aa3ff;
+            color: #ffffff;
+        }
+        
+        .btn-primary:hover {
+            background: #3a93ef;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(74, 163, 255, 0.4);
+        }
+        
+        .btn-secondary {
+            background: #34c759;
+            color: #ffffff;
+        }
+        
+        .btn-secondary:hover {
+            background: #2ab749;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(52, 199, 89, 0.4);
+        }
+        
+        .btn:disabled {
+            background: #cccccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎓 互動教學簡報製作器</h1>
+        <p>
+            這是一個專為老師設計的工具，可以用拖曳方式建立互動簡報，<br>
+            並匯出成可分享的網頁簡報。
+        </p>
+        <div class="button-group">
+            <a href="editor.html" class="btn btn-primary">進入編輯器</a>
+            <a href="player.html" class="btn btn-secondary">進入播放器</a>
+        </div>
+    </div>
+</body>
+</html>
