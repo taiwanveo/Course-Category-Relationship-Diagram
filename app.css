@@ -400,6 +400,23 @@ body {
     color: var(--primary);
 }
 .component-btn .icon { font-size: 18px; line-height: 1; }
+/* 影像版圖示（用於替代 emoji 不夠精緻的場景） */
+.component-btn .icon-img {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px; height: 22px;
+}
+.component-btn .icon-img img {
+    width: 100%; height: 100%;
+    object-fit: contain;
+    pointer-events: none;
+    -webkit-user-drag: none;
+    user-drag: none;
+    filter: drop-shadow(0 1px 1px rgba(0,0,0,0.08));
+    transition: transform 0.15s ease;
+}
+.component-btn:hover .icon-img img { transform: scale(1.08); }
 .component-btn-primary {
     background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
     border-color: #f59e0b;
