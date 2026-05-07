@@ -479,17 +479,24 @@ ${tagsHint}
             return `${labels[cat]}：${lib.map(t => t.name).join('、') || '（無）'}`;
         }).join('\n');
 
-        const mainCount = parseInt(opts.targetMainCount, 10) || 0;
-        const subCount = parseInt(opts.targetSubCount, 10) || 0;
+        // 規模範圍（min-max）。0 / NaN 表示該方向不限制
+        const minMain = Math.max(0, parseInt(opts.minMain, 10) || 0);
+        const maxMain = Math.max(0, parseInt(opts.maxMain, 10) || 0);
+        const minSub = Math.max(0, parseInt(opts.minSub, 10) || 0);
+        const maxSub = Math.max(0, parseInt(opts.maxSub, 10) || 0);
         const attachTags = !!opts.attachTags;
         const inspirationNames = Array.isArray(opts.inspirationNames) ? opts.inspirationNames : [];
         const isInspired = inspirationNames.length > 0;
 
         const scaleHint = (() => {
             const parts = [];
-            if (mainCount > 0) parts.push(`請設計**約 ${mainCount} 個主分類**`);
+            if (minMain && maxMain) parts.push(`請設計 **${minMain} 至 ${maxMain} 個主分類**（這是嚴格範圍，不能少於 ${minMain} 個，也不要超過 ${maxMain} 個）`);
+            else if (minMain) parts.push(`請設計**至少 ${minMain} 個主分類**`);
+            else if (maxMain) parts.push(`請設計**最多 ${maxMain} 個主分類**`);
             else parts.push('請依學科特性自行決定主分類數量（建議 3–8 個）');
-            if (subCount > 0) parts.push(`每個主分類**約 ${subCount} 個子分類**`);
+            if (minSub && maxSub) parts.push(`每個主分類包含 **${minSub} 至 ${maxSub} 個子分類**（嚴格範圍，不能少於 ${minSub}、不要超過 ${maxSub}）`);
+            else if (minSub) parts.push(`每個主分類**至少 ${minSub} 個子分類**`);
+            else if (maxSub) parts.push(`每個主分類**最多 ${maxSub} 個子分類**`);
             else parts.push('每個主分類的子分類數量自行決定（建議 2–5 個）');
             return parts.join('，') + '。';
         })();
@@ -585,7 +592,8 @@ ${scaleHint}${tagsBlock}${inspirationBlock}${userExtra}
 
         const cacheKey = await sha256(JSON.stringify({
             kind: 'scaffold', p: providerId, m: model, s: subject, u: userPrompt,
-            tmc: opts.targetMainCount || 0, tsc: opts.targetSubCount || 0,
+            mnm: opts.minMain || 0, mxm: opts.maxMain || 0,
+            mns: opts.minSub || 0, mxs: opts.maxSub || 0,
             tag: !!opts.attachTags, ins: opts.inspirationNames || []
         }));
         const cached = await AppStorage.getAICache(cacheKey);
@@ -614,6 +622,52 @@ ${scaleHint}${tagsBlock}${inspirationBlock}${userExtra}
         parsed.categories.forEach(cat => {
             (cat.subcategories || []).forEach(sub => { sub.classes = []; });
         });
+        // ============================
+        // 後處理：強制 min-max 範圍保險
+        // ============================
+        const minMain = parseInt(opts.minMain, 10) || 0;
+        const maxMain = parseInt(opts.maxMain, 10) || 0;
+        const minSub = parseInt(opts.minSub, 10) || 0;
+        const maxSub = parseInt(opts.maxSub, 10) || 0;
+        const adjustments = [];
+        // 主分類：截斷
+        if (maxMain > 0 && parsed.categories.length > maxMain) {
+            adjustments.push(`主分類已從 ${parsed.categories.length} 截斷為上限 ${maxMain}`);
+            parsed.categories = parsed.categories.slice(0, maxMain);
+        }
+        // 主分類：補空白
+        if (minMain > 0 && parsed.categories.length < minMain) {
+            const needed = minMain - parsed.categories.length;
+            for (let i = 0; i < needed; i++) {
+                parsed.categories.push({
+                    name: `（待命名主分類 ${parsed.categories.length + 1}）`,
+                    subcategories: []
+                });
+            }
+            adjustments.push(`主分類不足，已補 ${needed} 個空白卡到下限 ${minMain}`);
+        }
+        // 子分類：每個主分類獨立檢查
+        let subClippedCount = 0, subPaddedCount = 0;
+        parsed.categories.forEach(cat => {
+            if (!Array.isArray(cat.subcategories)) cat.subcategories = [];
+            if (maxSub > 0 && cat.subcategories.length > maxSub) {
+                subClippedCount += cat.subcategories.length - maxSub;
+                cat.subcategories = cat.subcategories.slice(0, maxSub);
+            }
+            if (minSub > 0 && cat.subcategories.length < minSub) {
+                const need = minSub - cat.subcategories.length;
+                for (let i = 0; i < need; i++) {
+                    cat.subcategories.push({
+                        name: `（待命名子分類 ${cat.subcategories.length + 1}）`,
+                        classes: []
+                    });
+                }
+                subPaddedCount += need;
+            }
+        });
+        if (subClippedCount) adjustments.push(`子分類截斷 ${subClippedCount} 個（超過上限 ${maxSub}）`);
+        if (subPaddedCount) adjustments.push(`子分類補白 ${subPaddedCount} 個（不足下限 ${minSub}）`);
+        if (adjustments.length) parsed._adjustments = adjustments;
         await AppStorage.setAICache(cacheKey, raw);
         return { fromCache: false, raw, parsed };
     }
@@ -621,8 +675,13 @@ ${scaleHint}${tagsBlock}${inspirationBlock}${userExtra}
     // Mock 骨架：給離線示範用，照 opts 規模回傳
     function callMockScaffold(subject, tagLibrary, opts) {
         opts = opts || {};
-        const mainCount = parseInt(opts.targetMainCount, 10) || 4;
-        const subCount = parseInt(opts.targetSubCount, 10) || 3;
+        // 規模：優先用 min-max 中位數；若都沒給，預設 4 主／3 子
+        const minMain = parseInt(opts.minMain, 10) || 0;
+        const maxMain = parseInt(opts.maxMain, 10) || 0;
+        const minSub = parseInt(opts.minSub, 10) || 0;
+        const maxSub = parseInt(opts.maxSub, 10) || 0;
+        const mainCount = (minMain && maxMain) ? Math.round((minMain + maxMain) / 2) : (minMain || maxMain || 4);
+        const subCount = (minSub && maxSub) ? Math.round((minSub + maxSub) / 2) : (minSub || maxSub || 3);
         const attachTags = !!opts.attachTags;
         const pickFirst = (cat, n) => ((tagLibrary && tagLibrary[cat]) || []).slice(0, n).map(t => t.name);
         const cats = [];

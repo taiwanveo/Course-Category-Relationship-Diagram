@@ -7,8 +7,10 @@
 // ============================================================
 let projectData = null;       // 當前作用中的 diagram（含 components/connectors/board/tagLibrary/assets）
 let assets = {};              // 為相容 v1 寫法保留；實際同步到 projectData.assets
-let selectedComponentId = null;
+let selectedComponentId = null;     // 主要選取（給 property panel 用）
+let selectedComponentIds = new Set(); // 多選集合（包含 selectedComponentId 與其他被選的）
 let selectedConnectorId = null;
+let groupIdCounter = 1;             // 用於建立新群組 ID
 let componentIdCounter = 1;
 let connectorIdCounter = 1;
 let tagIdCounter = 1;
@@ -402,6 +404,8 @@ function setupEventListeners() {
 
     // 顯示模式切換（完整 ↔ 骨架）
     document.getElementById('btn-view-mode').addEventListener('click', toggleViewMode);
+    // 智慧整理（一鍵）
+    document.getElementById('btn-smart-layout').addEventListener('click', () => smartLayout());
     document.getElementById('btn-version-history').addEventListener('click', openVersionHistory);
     document.getElementById('btn-theme-toggle').addEventListener('click', () => {
         const cur = AppStorage.Settings.getTheme();
@@ -451,8 +455,11 @@ function setupEventListeners() {
     const canvas = document.getElementById('canvas');
     canvas.addEventListener('mousedown', (e) => {
         if (e.target === canvas || e.target.id === 'connector-layer' || e.target.tagName === 'svg') {
-            deselectAll();
-            if (e.button === 0 && connectorMode) exitConnectorMode();
+            if (e.button === 0 && connectorMode) { exitConnectorMode(); return; }
+            // 左鍵在空白處 → 開始框選（marquee）。Shift 為「累加多選」模式
+            if (e.button === 0) {
+                startMarqueeSelection(e);
+            }
         }
     });
     canvas.addEventListener('contextmenu', (e) => {
@@ -678,11 +685,50 @@ function handleKeyDown(e) {
         deselectAll();
     }
     if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (selectedComponentId) { deleteComponent(selectedComponentId); e.preventDefault(); }
-        else if (selectedConnectorId) { deleteConnector(selectedConnectorId); e.preventDefault(); }
+        if (selectedComponentIds.size > 0) {
+            const ids = Array.from(selectedComponentIds);
+            if (ids.length > 1) {
+                if (!confirm(`刪除選取的 ${ids.length} 個元件？`)) return;
+            }
+            ids.forEach(id => deleteComponent(id));
+            deselectAll();
+            e.preventDefault();
+        } else if (selectedConnectorId) { deleteConnector(selectedConnectorId); e.preventDefault(); }
     }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
-        if (selectedComponentId) { duplicateComponent(selectedComponentId); e.preventDefault(); }
+        if (selectedComponentIds.size > 0) {
+            const ids = Array.from(selectedComponentIds);
+            const newIds = [];
+            ids.forEach(id => {
+                const c = getComponent(id); if (!c) return;
+                const dup = JSON.parse(JSON.stringify(c));
+                dup.id = 'comp' + (componentIdCounter++);
+                dup.x += 30; dup.y += 30;
+                dup.zIndex = nextTopZIndex();
+                projectData.components.push(dup);
+                newIds.push(dup.id);
+            });
+            renderCanvas();
+            selectComponents(newIds);
+            scheduleSaveDraft();
+            e.preventDefault();
+        }
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a' && !e.shiftKey) {
+        // Ctrl+A：全選所有未鎖定元件
+        const allIds = projectData.components.filter(c => !c.locked).map(c => c.id);
+        if (allIds.length) selectComponents(allIds);
+        e.preventDefault();
+    }
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'g') {
+        // Ctrl+G：群組
+        groupSelected();
+        e.preventDefault();
+    }
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'g') {
+        // Ctrl+Shift+G：解除群組
+        ungroupSelected();
+        e.preventDefault();
     }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
         if (selectedComponentId) clipboardComponent = JSON.parse(JSON.stringify(getComponent(selectedComponentId)));
@@ -753,6 +799,15 @@ function renderCanvas() {
     });
     renderConnectors();
     updateStats();
+    // 重新套用多選 / 群組視覺（renderCanvas 會把 .selected 清掉）
+    if (typeof refreshSelectionVisuals === 'function' && selectedComponentIds && selectedComponentIds.size > 0) {
+        // 過濾掉已被刪除的 id
+        selectedComponentIds = new Set(Array.from(selectedComponentIds).filter(id => getComponent(id)));
+        if (!selectedComponentIds.has(selectedComponentId)) {
+            selectedComponentId = selectedComponentIds.size > 0 ? Array.from(selectedComponentIds)[0] : null;
+        }
+        refreshSelectionVisuals();
+    }
 }
 
 function updateStats() {
@@ -868,8 +923,9 @@ function deleteComponent(id) {
     projectData.components.splice(idx, 1);
     projectData.connectors = projectData.connectors.filter(c => c.fromComponentId !== id && c.toComponentId !== id);
     if (selectedComponentId === id) selectedComponentId = null;
+    if (selectedComponentIds && selectedComponentIds.has(id)) selectedComponentIds.delete(id);
     renderCanvas();
-    updatePropertyPanel(null);
+    if (selectedComponentIds && selectedComponentIds.size === 0) updatePropertyPanel(null);
     scheduleSaveDraft();
 }
 function duplicateComponent(id) {
@@ -942,9 +998,14 @@ function createComponentElement(comp) {
         case 'button':          renderButtonComponent(div, comp); break;
         case 'tag':             renderTagComponent(div, comp); break;
     }
-    if (comp.id === selectedComponentId) div.classList.add('selected');
+    if (selectedComponentIds && selectedComponentIds.has(comp.id)) {
+        div.classList.add('selected');
+        if (selectedComponentIds.size > 1) div.classList.add('multi-selected');
+    }
     setupComponentInteractions(div, comp);
-    if (comp.id === selectedComponentId && !comp.locked) addResizeHandles(div, comp);
+    if (selectedComponentIds && selectedComponentIds.size === 1 && comp.id === selectedComponentId && !comp.locked) {
+        addResizeHandles(div, comp);
+    }
     return div;
 }
 
@@ -1108,12 +1169,17 @@ function setupComponentInteractions(element, component) {
     element.addEventListener('click', (e) => {
         e.stopPropagation();
         if (connectorMode) return;
-        selectComponent(component.id);
+        // Shift / Ctrl / Cmd 點擊 → 累加選取（多選）
+        const append = e.shiftKey || e.ctrlKey || e.metaKey;
+        selectComponent(component.id, { append });
     });
     element.addEventListener('contextmenu', (e) => {
         e.preventDefault(); e.stopPropagation();
         if (connectorMode) { exitConnectorMode(); return; }
-        selectComponent(component.id);
+        // 若該元件不在目前選取集中，視為單選；若已在則保留多選狀態
+        if (!selectedComponentIds.has(component.id)) {
+            selectComponent(component.id);
+        }
         showComponentContextMenu(e, component);
     });
     if (!component.locked) setupDrag(element, component);
@@ -1144,7 +1210,8 @@ function beginInlineEdit(element, component, propKey) {
 function setupDrag(element, component) {
     let isDragging = false;
     let dragStarted = false;
-    let startX, startY, startLeft, startTop;
+    let startX, startY;
+    let dragSet = []; // [{ comp, startX, startY, el }]
     const THRESHOLD = 4;
     element.addEventListener('mousedown', (e) => {
         if (e.button !== 0) return;
@@ -1157,7 +1224,25 @@ function setupDrag(element, component) {
         e.preventDefault(); e.stopPropagation();
         isDragging = true; dragStarted = false;
         startX = e.clientX; startY = e.clientY;
-        startLeft = component.x; startTop = component.y;
+
+        // 計算「實際要拖的元件集合」
+        // 1. 若按 Shift/Ctrl：當前點到的元件加入選取（不立即重設）
+        // 2. 若 component 已在 selectedComponentIds：拖整個 selection
+        // 3. 若 component 不在 selectedComponentIds：拖單一（先單選）
+        // 4. 群組 (groupId)：自動把整組納入
+        let dragIds;
+        if (selectedComponentIds.has(component.id) && selectedComponentIds.size > 1) {
+            dragIds = Array.from(selectedComponentIds);
+        } else {
+            dragIds = Array.from(expandSelectionByGroup(component.id));
+        }
+        dragSet = dragIds.map(id => {
+            const c = getComponent(id);
+            if (!c || c.locked) return null;
+            const el = document.querySelector(`[data-component-id="${id}"]`);
+            return { comp: c, startX: c.x, startY: c.y, el };
+        }).filter(Boolean);
+
         document.addEventListener('mousemove', onMove, { passive: false });
         document.addEventListener('mouseup', onUp);
         document.body.style.userSelect = 'none';
@@ -1169,24 +1254,46 @@ function setupDrag(element, component) {
         if (!dragStarted && Math.abs(dx) < THRESHOLD && Math.abs(dy) < THRESHOLD) return;
         if (!dragStarted) {
             dragStarted = true;
-            element.classList.add('dragging');
-            selectComponent(component.id);
+            dragSet.forEach(d => d.el && d.el.classList.add('dragging'));
+            // 若拖的元件未被選取，則此時才（單）選它
+            if (!selectedComponentIds.has(component.id)) {
+                selectComponent(component.id);
+            }
         }
         e.preventDefault();
-        const newX = Math.max(0, Math.min(projectData.board.w - component.w, startLeft + dx));
-        const newY = Math.max(0, Math.min(projectData.board.h - component.h, startTop + dy));
-        component.x = newX; component.y = newY;
-        element.style.left = newX + 'px'; element.style.top = newY + 'px';
+        // 計算「整批可移動」的 dx/dy（讓任何元件都不超出畫布邊界）
+        let cdx = dx, cdy = dy;
+        dragSet.forEach(d => {
+            const projX = d.startX + cdx;
+            const projY = d.startY + cdy;
+            const minDx = -d.startX;
+            const maxDx = projectData.board.w - d.comp.w - d.startX;
+            const minDy = -d.startY;
+            const maxDy = projectData.board.h - d.comp.h - d.startY;
+            cdx = Math.max(minDx, Math.min(maxDx, cdx));
+            cdy = Math.max(minDy, Math.min(maxDy, cdy));
+        });
+        dragSet.forEach(d => {
+            d.comp.x = d.startX + cdx;
+            d.comp.y = d.startY + cdy;
+            if (d.el) {
+                d.el.style.left = d.comp.x + 'px';
+                d.el.style.top = d.comp.y + 'px';
+            }
+        });
+        // 群組外框跟著移
+        renderGroupBBox();
         scheduleRenderConnectors();
     }
     function onUp() {
         if (!isDragging) return;
         isDragging = false;
         if (dragStarted) {
-            element.classList.remove('dragging');
+            dragSet.forEach(d => d.el && d.el.classList.remove('dragging'));
             scheduleSaveDraft();
-            if (selectedComponentId === component.id) updatePropertyPanel(component);
+            if (selectedComponentIds.size === 1 && selectedComponentId === component.id) updatePropertyPanel(component);
         }
+        dragSet = [];
         document.body.style.userSelect = '';
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
@@ -1242,41 +1349,367 @@ function addResizeHandles(element, component) {
 }
 
 // ============================================================
-// 選取
+// 選取（支援多選 + 群組）
 // ============================================================
-function selectComponent(id) {
-    selectedComponentId = id; selectedConnectorId = null;
-    document.querySelectorAll('.component').forEach(el => el.classList.remove('selected'));
-    document.querySelectorAll('.connector-path').forEach(el => el.classList.remove('selected'));
-    const el = document.querySelector(`[data-component-id="${id}"]`);
-    if (el) el.classList.add('selected');
+// 給定一個元件 id，回傳「應該被一起選取的」全部 id（自己 + 同 groupId 成員）
+function expandSelectionByGroup(id) {
     const comp = getComponent(id);
-    document.querySelectorAll('.resize-handle').forEach(h => h.remove());
-    if (el && comp && !comp.locked) addResizeHandles(el, comp);
-    updatePropertyPanel(comp);
-    renderWaypointHandles();
-    showPropertyPanel();
+    if (!comp || !comp.groupId) return new Set([id]);
+    const ids = projectData.components.filter(c => c.groupId === comp.groupId).map(c => c.id);
+    return new Set(ids);
 }
-function selectConnector(id) {
-    selectedConnectorId = id; selectedComponentId = null;
-    document.querySelectorAll('.component').forEach(el => el.classList.remove('selected'));
+
+function selectComponent(id, opts) {
+    opts = opts || {};
+    selectedConnectorId = null;
+    if (opts.append) {
+        // Shift+click：toggle（若已選則移除；若未選則加入；新元件若有群組則整組加入）
+        if (selectedComponentIds.has(id)) {
+            // 取消選此元件（若它在群組內，整組一併取消）
+            const groupSet = expandSelectionByGroup(id);
+            groupSet.forEach(gid => selectedComponentIds.delete(gid));
+            // 主要選取改為 set 中任一個（或 null）
+            selectedComponentId = selectedComponentIds.size > 0 ? Array.from(selectedComponentIds).pop() : null;
+        } else {
+            // 加入此元件（若有群組整組加入）
+            const groupSet = expandSelectionByGroup(id);
+            groupSet.forEach(gid => selectedComponentIds.add(gid));
+            selectedComponentId = id;
+        }
+    } else {
+        // 一般點擊：清空後重設（若有群組整組選）
+        selectedComponentIds = expandSelectionByGroup(id);
+        selectedComponentId = id;
+    }
+    refreshSelectionVisuals();
+    // property panel：單選顯示元件屬性，多選顯示「N 個元件已選取」
+    if (selectedComponentIds.size === 1) {
+        const comp = getComponent(selectedComponentId);
+        updatePropertyPanel(comp);
+        showPropertyPanel();
+    } else if (selectedComponentIds.size > 1) {
+        renderMultiSelectPropertyPanel();
+        showPropertyPanel();
+    } else {
+        updatePropertyPanel(null);
+        hidePropertyPanel();
+    }
+    renderWaypointHandles();
+}
+// 多選：直接設定一組 id（marquee / Ctrl+A 用）
+function selectComponents(ids) {
+    selectedConnectorId = null;
+    selectedComponentIds = new Set(ids);
+    selectedComponentId = ids.length > 0 ? ids[ids.length - 1] : null;
+    refreshSelectionVisuals();
+    if (selectedComponentIds.size === 1) {
+        updatePropertyPanel(getComponent(selectedComponentId));
+        showPropertyPanel();
+    } else if (selectedComponentIds.size > 1) {
+        renderMultiSelectPropertyPanel();
+        showPropertyPanel();
+    } else {
+        updatePropertyPanel(null);
+        hidePropertyPanel();
+    }
+    renderWaypointHandles();
+}
+
+// 重新渲染所有選取相關的視覺（.selected class、resize handles、群組外框）
+function refreshSelectionVisuals() {
+    document.querySelectorAll('.component').forEach(el => el.classList.remove('selected', 'multi-selected'));
     document.querySelectorAll('.connector-path').forEach(el => el.classList.remove('selected'));
+    document.querySelectorAll('.resize-handle').forEach(h => h.remove());
+    selectedComponentIds.forEach(id => {
+        const el = document.querySelector(`[data-component-id="${id}"]`);
+        if (!el) return;
+        el.classList.add('selected');
+        if (selectedComponentIds.size > 1) el.classList.add('multi-selected');
+    });
+    // 單選且未鎖定：加 resize handles
+    if (selectedComponentIds.size === 1) {
+        const id = selectedComponentId;
+        const el = document.querySelector(`[data-component-id="${id}"]`);
+        const comp = getComponent(id);
+        if (el && comp && !comp.locked) addResizeHandles(el, comp);
+    }
+    renderGroupBBox();
+}
+
+// 渲染群組/多選的虛線包圍框（被選取時才顯示）
+function renderGroupBBox() {
+    // 移除舊的
+    document.querySelectorAll('.group-bbox').forEach(el => el.remove());
+    if (selectedComponentIds.size < 2) return; // 單選不畫
+    const comps = Array.from(selectedComponentIds).map(id => getComponent(id)).filter(Boolean);
+    if (comps.length < 2) return;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    comps.forEach(c => {
+        minX = Math.min(minX, c.x); minY = Math.min(minY, c.y);
+        maxX = Math.max(maxX, c.x + c.w); maxY = Math.max(maxY, c.y + c.h);
+    });
+    const pad = 8;
+    const bbox = document.createElement('div');
+    bbox.className = 'group-bbox';
+    bbox.style.left = (minX - pad) + 'px';
+    bbox.style.top = (minY - pad) + 'px';
+    bbox.style.width = (maxX - minX + pad * 2) + 'px';
+    bbox.style.height = (maxY - minY + pad * 2) + 'px';
+    // 判斷是「同 groupId 整組」還是「臨時多選」
+    const groupIds = new Set(comps.map(c => c.groupId).filter(Boolean));
+    const isFormalGroup = groupIds.size === 1 && comps.every(c => c.groupId);
+    if (isFormalGroup) bbox.classList.add('formal-group');
+    document.getElementById('canvas').appendChild(bbox);
+}
+
+// 多選時的屬性面板：顯示彙總操作
+function renderMultiSelectPropertyPanel() {
+    const panel = document.getElementById('property-panel');
+    const ids = Array.from(selectedComponentIds);
+    const comps = ids.map(id => getComponent(id)).filter(Boolean);
+    const groupIds = new Set(comps.map(c => c.groupId).filter(Boolean));
+    const isFormalGroup = groupIds.size === 1 && comps.every(c => c.groupId);
+    const html = `
+        <div class="property-section">
+            <div class="property-section-title">多重選取（${ids.length} 個元件）${isFormalGroup ? '<span style="color:var(--primary);font-size:11px;">［正式群組］</span>' : ''}</div>
+            <p style="font-size:12px;color:var(--text-muted);margin:6px 0 12px;">
+                ${isFormalGroup
+                    ? '這些元件已群組。拖曳任一個會整組移動。'
+                    : '臨時多選。拖曳任一個會整批移動。可建立正式群組（永久保存）。'}
+            </p>
+            <div class="property-actions" style="flex-wrap:wrap;gap:6px;">
+                ${isFormalGroup
+                    ? `<button class="btn btn-small btn-danger" id="btn-multi-ungroup">解除群組（Ctrl+Shift+G）</button>`
+                    : `<button class="btn btn-small btn-primary" id="btn-multi-group">建立群組（Ctrl+G）</button>`}
+                <button class="btn btn-small" id="btn-multi-align-left">⫷ 左對齊</button>
+                <button class="btn btn-small" id="btn-multi-align-center">∥ 水平置中</button>
+                <button class="btn btn-small" id="btn-multi-align-right">⫸ 右對齊</button>
+                <button class="btn btn-small" id="btn-multi-align-top">⫶ 上對齊</button>
+                <button class="btn btn-small" id="btn-multi-align-middle">═ 垂直置中</button>
+                <button class="btn btn-small" id="btn-multi-align-bottom">⫶ 下對齊</button>
+                <button class="btn btn-small" id="btn-multi-distribute-h">⇔ 水平等距</button>
+                <button class="btn btn-small" id="btn-multi-distribute-v">⇕ 垂直等距</button>
+                <button class="btn btn-small" id="btn-multi-duplicate">複製全部</button>
+                <button class="btn btn-small btn-danger" id="btn-multi-delete">刪除全部</button>
+            </div>
+        </div>`;
+    panel.innerHTML = html;
+    bindMultiSelectActions(ids);
+}
+
+function bindMultiSelectActions(ids) {
+    const $ = (id) => document.getElementById(id);
+    if ($('btn-multi-group')) $('btn-multi-group').addEventListener('click', () => groupSelected());
+    if ($('btn-multi-ungroup')) $('btn-multi-ungroup').addEventListener('click', () => ungroupSelected());
+    if ($('btn-multi-delete')) $('btn-multi-delete').addEventListener('click', () => {
+        if (!confirm(`刪除選取的 ${ids.length} 個元件？`)) return;
+        ids.forEach(id => deleteComponent(id));
+        deselectAll();
+    });
+    if ($('btn-multi-duplicate')) $('btn-multi-duplicate').addEventListener('click', () => {
+        const newIds = [];
+        ids.forEach(id => {
+            const c = getComponent(id); if (!c) return;
+            const dup = JSON.parse(JSON.stringify(c));
+            dup.id = 'comp' + (componentIdCounter++);
+            dup.x += 30; dup.y += 30;
+            dup.zIndex = nextTopZIndex();
+            projectData.components.push(dup);
+            newIds.push(dup.id);
+        });
+        renderCanvas(); selectComponents(newIds); scheduleSaveDraft();
+    });
+    // 對齊（取選取中的最小/中/最大邊界對齊）
+    const align = (key) => alignSelected(ids, key);
+    if ($('btn-multi-align-left')) $('btn-multi-align-left').addEventListener('click', () => align('left'));
+    if ($('btn-multi-align-center')) $('btn-multi-align-center').addEventListener('click', () => align('center'));
+    if ($('btn-multi-align-right')) $('btn-multi-align-right').addEventListener('click', () => align('right'));
+    if ($('btn-multi-align-top')) $('btn-multi-align-top').addEventListener('click', () => align('top'));
+    if ($('btn-multi-align-middle')) $('btn-multi-align-middle').addEventListener('click', () => align('middle'));
+    if ($('btn-multi-align-bottom')) $('btn-multi-align-bottom').addEventListener('click', () => align('bottom'));
+    if ($('btn-multi-distribute-h')) $('btn-multi-distribute-h').addEventListener('click', () => distributeSelected(ids, 'h'));
+    if ($('btn-multi-distribute-v')) $('btn-multi-distribute-v').addEventListener('click', () => distributeSelected(ids, 'v'));
+}
+
+function alignSelected(ids, mode) {
+    const comps = ids.map(id => getComponent(id)).filter(Boolean);
+    if (comps.length < 2) return;
+    if (mode === 'left') {
+        const x = Math.min(...comps.map(c => c.x));
+        comps.forEach(c => c.x = x);
+    } else if (mode === 'right') {
+        const x = Math.max(...comps.map(c => c.x + c.w));
+        comps.forEach(c => c.x = x - c.w);
+    } else if (mode === 'center') {
+        const cx = comps.reduce((s, c) => s + c.x + c.w / 2, 0) / comps.length;
+        comps.forEach(c => c.x = cx - c.w / 2);
+    } else if (mode === 'top') {
+        const y = Math.min(...comps.map(c => c.y));
+        comps.forEach(c => c.y = y);
+    } else if (mode === 'bottom') {
+        const y = Math.max(...comps.map(c => c.y + c.h));
+        comps.forEach(c => c.y = y - c.h);
+    } else if (mode === 'middle') {
+        const cy = comps.reduce((s, c) => s + c.y + c.h / 2, 0) / comps.length;
+        comps.forEach(c => c.y = cy - c.h / 2);
+    }
+    renderCanvas(); refreshSelectionVisuals(); scheduleSaveDraft();
+}
+function distributeSelected(ids, axis) {
+    const comps = ids.map(id => getComponent(id)).filter(Boolean);
+    if (comps.length < 3) { toast('等距分布需要至少 3 個元件', 'warning'); return; }
+    if (axis === 'h') {
+        comps.sort((a, b) => a.x - b.x);
+        const minX = comps[0].x;
+        const maxX = comps[comps.length - 1].x;
+        const step = (maxX - minX) / (comps.length - 1);
+        comps.forEach((c, i) => { if (i > 0 && i < comps.length - 1) c.x = Math.round(minX + step * i); });
+    } else {
+        comps.sort((a, b) => a.y - b.y);
+        const minY = comps[0].y;
+        const maxY = comps[comps.length - 1].y;
+        const step = (maxY - minY) / (comps.length - 1);
+        comps.forEach((c, i) => { if (i > 0 && i < comps.length - 1) c.y = Math.round(minY + step * i); });
+    }
+    renderCanvas(); refreshSelectionVisuals(); scheduleSaveDraft();
+}
+
+// 群組：給選取中的元件分配同一個 groupId
+function groupSelected() {
+    if (selectedComponentIds.size < 2) { toast('需要選取 2 個以上的元件才能群組', 'warning'); return; }
+    const groupId = 'g' + Date.now() + '_' + (groupIdCounter++);
+    const ids = Array.from(selectedComponentIds);
+    ids.forEach(id => {
+        const c = getComponent(id);
+        if (c) c.groupId = groupId;
+    });
+    snapshot('auto', `建立群組（${ids.length} 個元件）`);
+    scheduleSaveDraft();
+    selectComponents(ids); // 重新整理 panel 顯示「正式群組」
+    toast(`已建立群組（${ids.length} 個元件）`, 'success');
+}
+function ungroupSelected() {
+    if (selectedComponentIds.size === 0) return;
+    const ids = Array.from(selectedComponentIds);
+    let count = 0;
+    ids.forEach(id => {
+        const c = getComponent(id);
+        if (c && c.groupId) { delete c.groupId; count++; }
+    });
+    if (count === 0) { toast('選取的元件沒有群組關係', 'info'); return; }
+    snapshot('auto', `解除群組（${count} 個元件）`);
+    scheduleSaveDraft();
+    selectComponents(ids);
+    toast(`已解除 ${count} 個元件的群組關係`, 'success');
+}
+
+function selectConnector(id) {
+    selectedConnectorId = id;
+    selectedComponentId = null;
+    selectedComponentIds = new Set();
+    document.querySelectorAll('.component').forEach(el => el.classList.remove('selected', 'multi-selected'));
+    document.querySelectorAll('.connector-path').forEach(el => el.classList.remove('selected'));
+    document.querySelectorAll('.resize-handle').forEach(h => h.remove());
+    document.querySelectorAll('.group-bbox').forEach(el => el.remove());
     const path = document.querySelector(`[data-connector-id="${id}"].connector-path`);
     if (path) path.classList.add('selected');
-    document.querySelectorAll('.resize-handle').forEach(h => h.remove());
     const conn = getConnector(id);
     updatePropertyPanel(null, conn);
     renderWaypointHandles();
     showPropertyPanel();
 }
 function deselectAll() {
-    selectedComponentId = null; selectedConnectorId = null;
-    document.querySelectorAll('.component').forEach(el => el.classList.remove('selected'));
+    selectedComponentId = null;
+    selectedComponentIds = new Set();
+    selectedConnectorId = null;
+    document.querySelectorAll('.component').forEach(el => el.classList.remove('selected', 'multi-selected'));
     document.querySelectorAll('.connector-path').forEach(el => el.classList.remove('selected'));
     document.querySelectorAll('.resize-handle').forEach(h => h.remove());
+    document.querySelectorAll('.group-bbox').forEach(el => el.remove());
     updatePropertyPanel(null);
     renderWaypointHandles();
     hidePropertyPanel();
+}
+
+// ============================================================
+// 框選（Marquee）
+//   - 在 canvas 空白處按下左鍵並拖曳超過閾值 → 顯示半透明選取框
+//   - mouseup 時把框內的元件全部選起來
+//   - 按住 Shift/Ctrl/Cmd：累加到目前選取（不清空原本的）
+// ============================================================
+function startMarqueeSelection(downEvent) {
+    const canvas = document.getElementById('canvas');
+    const additive = downEvent.shiftKey || downEvent.ctrlKey || downEvent.metaKey;
+    const canvasRect = canvas.getBoundingClientRect();
+    // 起點（canvas 內邏輯座標）
+    const sx = (downEvent.clientX - canvasRect.left) / viewportZoom;
+    const sy = (downEvent.clientY - canvasRect.top) / viewportZoom;
+    let curX = sx, curY = sy;
+    let started = false;
+    const THRESHOLD = 4;
+    const prevSelection = additive ? new Set(selectedComponentIds) : new Set();
+    if (!additive) deselectAll();
+
+    let marqueeEl = null;
+    function ensureMarqueeEl() {
+        if (marqueeEl) return marqueeEl;
+        marqueeEl = document.createElement('div');
+        marqueeEl.className = 'marquee-selection';
+        canvas.appendChild(marqueeEl);
+        return marqueeEl;
+    }
+    function updateMarqueeEl() {
+        if (!marqueeEl) return;
+        const x = Math.min(sx, curX), y = Math.min(sy, curY);
+        const w = Math.abs(curX - sx), h = Math.abs(curY - sy);
+        marqueeEl.style.left = x + 'px';
+        marqueeEl.style.top = y + 'px';
+        marqueeEl.style.width = w + 'px';
+        marqueeEl.style.height = h + 'px';
+    }
+    function onMove(e) {
+        curX = (e.clientX - canvasRect.left) / viewportZoom;
+        curY = (e.clientY - canvasRect.top) / viewportZoom;
+        if (!started) {
+            const dx = curX - sx, dy = curY - sy;
+            if (Math.abs(dx) < THRESHOLD && Math.abs(dy) < THRESHOLD) return;
+            started = true;
+            ensureMarqueeEl();
+            document.body.style.userSelect = 'none';
+        }
+        updateMarqueeEl();
+        // 即時高亮（可選效果）：套用 marquee-hovering 給命中元件
+        const x1 = Math.min(sx, curX), y1 = Math.min(sy, curY);
+        const x2 = Math.max(sx, curX), y2 = Math.max(sy, curY);
+        document.querySelectorAll('.component').forEach(el => {
+            const id = el.dataset.componentId;
+            const c = getComponent(id);
+            if (!c) return;
+            const hit = !(c.x + c.w < x1 || c.x > x2 || c.y + c.h < y1 || c.y > y2);
+            el.classList.toggle('marquee-hover', hit);
+        });
+    }
+    function onUp() {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        document.body.style.userSelect = '';
+        document.querySelectorAll('.component').forEach(el => el.classList.remove('marquee-hover'));
+        if (marqueeEl) { marqueeEl.remove(); marqueeEl = null; }
+        if (!started) return; // 純單擊（沒拖），不變更選取
+        const x1 = Math.min(sx, curX), y1 = Math.min(sy, curY);
+        const x2 = Math.max(sx, curX), y2 = Math.max(sy, curY);
+        const hit = projectData.components.filter(c => {
+            return !(c.x + c.w < x1 || c.x > x2 || c.y + c.h < y1 || c.y > y2);
+        }).map(c => c.id);
+        // 累加模式：將命中的 id 併入 prevSelection；否則直接用 hit
+        const finalIds = additive ? Array.from(new Set([...prevSelection, ...hit])) : hit;
+        // 群組擴展：任何被選中的若有 groupId，整組納入
+        const expanded = new Set(finalIds);
+        finalIds.forEach(id => expandSelectionByGroup(id).forEach(g => expanded.add(g)));
+        selectComponents(Array.from(expanded));
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
 }
 
 // ============================================================
@@ -2135,6 +2568,28 @@ function showComponentContextMenu(e, comp) {
     items.push({ separator: true });
     items.push({ label: '從此拉連線到…', icon: '↔️', action: () => enterConnectorMode(comp.id) });
     if (comp.type === 'course-category') items.push({ label: '選取所有下游類別', icon: '⊞', action: () => selectDownstream(comp.id) });
+    // 群組相關（多選 / 已群組時才有意義）
+    const isMulti = selectedComponentIds.size > 1 && selectedComponentIds.has(comp.id);
+    if (isMulti) {
+        items.push({ separator: true });
+        const comps = Array.from(selectedComponentIds).map(id => getComponent(id)).filter(Boolean);
+        const groupIds = new Set(comps.map(c => c.groupId).filter(Boolean));
+        const isFormalGroup = groupIds.size === 1 && comps.every(c => c.groupId);
+        if (isFormalGroup) {
+            items.push({ label: '解除群組（Ctrl+Shift+G）', icon: '⛓️', action: () => ungroupSelected() });
+        } else {
+            items.push({ label: `建立群組（${selectedComponentIds.size} 個元件，Ctrl+G）`, icon: '🔗', action: () => groupSelected() });
+        }
+    } else if (comp.groupId) {
+        items.push({ separator: true });
+        items.push({ label: '選取整組', icon: '⊞', action: () => {
+            const same = projectData.components.filter(c => c.groupId === comp.groupId).map(c => c.id);
+            selectComponents(same);
+        }});
+        items.push({ label: '解除此元件的群組關係', icon: '⛓️', action: () => {
+            delete comp.groupId; renderCanvas(); scheduleSaveDraft(); toast('已從群組移除', 'success');
+        }});
+    }
     items.push({ separator: true });
     items.push({ label: '複製', icon: '📋', action: () => duplicateComponent(comp.id) });
     items.push({ label: '複製樣式', icon: '🎨', action: () => copyStyle(comp) });
@@ -2780,6 +3235,113 @@ function applyLayout(layoutId) {
     renderCanvas();
     scheduleSaveDraft();
     snapshot('auto', `套用版型：${layoutId}`);
+}
+
+// ============================================================
+// 智慧整理：依階層樹狀排版 + 自動擴張白板，確保所有卡片都在畫布內
+// 與 applyLayout('tree-h') 的差別：
+//   - 排版前計算「需要的最小 board 尺寸」，若不夠就自動擴大白板
+//   - 卡片寬高動態（取目前 cards 的實際 max w/h，避免 360x200 寫死）
+//   - 同時排版 course-category 卡與其他元件（其他元件保持原位置但會 clamp 到新 board 內）
+// ============================================================
+function smartLayout(opts) {
+    opts = opts || {};
+    const showToast = opts.silent !== true;
+    const cards = projectData.components.filter(c => c.type === 'course-category');
+    if (cards.length === 0) {
+        if (showToast) toast('沒有可整理的課程類別卡', 'info');
+        return;
+    }
+    // 取得實際卡片尺寸（以最大值當間距基準）
+    const cardW = Math.max(...cards.map(c => c.w || 360), 360);
+    const cardH = Math.max(...cards.map(c => c.h || 160), 160);
+    const padding = 80;
+    const gapX = 80;            // 同列卡片水平間距用：colW = cardW + gapX
+    const gapY = 40;            // 同列卡片垂直間距：rowH = cardH + gapY
+    const colW = cardW + gapX;
+    const rowH = cardH + gapY;
+
+    // 階層偵測（同 applyLayout 的 BFS）
+    const childrenMap = new Map();
+    const incoming = new Map();
+    cards.forEach(c => { childrenMap.set(c.id, []); incoming.set(c.id, []); });
+    projectData.connectors.forEach(conn => {
+        if (childrenMap.has(conn.fromComponentId) && cards.find(c => c.id === conn.toComponentId)) {
+            childrenMap.get(conn.fromComponentId).push(conn.toComponentId);
+            incoming.get(conn.toComponentId).push(conn.fromComponentId);
+        }
+    });
+    const roots = cards.filter(c => (incoming.get(c.id) || []).length === 0);
+    const level = new Map();
+    const queue = [];
+    roots.forEach(r => { level.set(r.id, 0); queue.push(r.id); });
+    cards.forEach(c => { if (!level.has(c.id)) { level.set(c.id, 0); queue.push(c.id); } });
+    while (queue.length) {
+        const cur = queue.shift();
+        (childrenMap.get(cur) || []).forEach(ch => {
+            const nxt = level.get(cur) + 1;
+            if (!level.has(ch) || nxt > level.get(ch)) {
+                level.set(ch, nxt); queue.push(ch);
+            }
+        });
+    }
+    const byLevel = new Map();
+    cards.forEach(c => {
+        const l = level.get(c.id) || 0;
+        if (!byLevel.has(l)) byLevel.set(l, []);
+        byLevel.get(l).push(c);
+    });
+    const sortedLevels = Array.from(byLevel.keys()).sort((a, b) => a - b);
+    const numLevels = sortedLevels.length;
+    const maxRowsInOneLevel = Math.max(...Array.from(byLevel.values()).map(arr => arr.length));
+
+    // 計算需要的最小 board 尺寸
+    const neededW = padding * 2 + numLevels * colW;
+    const neededH = padding * 2 + maxRowsInOneLevel * rowH;
+    let boardW = projectData.board.w;
+    let boardH = projectData.board.h;
+    let boardChanged = false;
+    if (boardW < neededW) { boardW = Math.ceil(neededW / 100) * 100; boardChanged = true; }
+    if (boardH < neededH) { boardH = Math.ceil(neededH / 100) * 100; boardChanged = true; }
+    if (boardChanged) {
+        projectData.board.w = boardW;
+        projectData.board.h = boardH;
+    }
+
+    // 排版：每層 X 固定，垂直置中
+    sortedLevels.forEach(lv => {
+        const arr = byLevel.get(lv);
+        // 同一主分類的子分類盡量挨在父節點旁（依父的 y 排序）
+        arr.sort((a, b) => {
+            const pa = (incoming.get(a.id) || [])[0];
+            const pb = (incoming.get(b.id) || [])[0];
+            const pay = pa ? (cards.find(c => c.id === pa) || {}).y || 0 : 0;
+            const pby = pb ? (cards.find(c => c.id === pb) || {}).y || 0 : 0;
+            if (pay !== pby) return pay - pby;
+            return (a.props.title || '').localeCompare(b.props.title || '');
+        });
+        const colX = padding + lv * colW;
+        const totalH = arr.length * rowH - gapY;
+        const startY = Math.max(padding, (boardH - totalH) / 2);
+        arr.forEach((card, i) => { card.x = colX; card.y = startY + i * rowH; });
+    });
+
+    // 其他元件（非 course-category）：clamp 到新 board 內，避免被裁切
+    projectData.components.filter(c => c.type !== 'course-category').forEach(c => {
+        c.x = Math.max(0, Math.min(boardW - c.w, c.x));
+        c.y = Math.max(0, Math.min(boardH - c.h, c.y));
+    });
+
+    applyBoardSettings();
+    renderCanvas();
+    scheduleSaveDraft();
+    if (!opts.skipSnapshot) snapshot('auto', '智慧整理排版');
+    if (showToast) {
+        const msg = boardChanged
+            ? `已整理 ${cards.length} 張卡片（白板已自動擴大為 ${boardW}×${boardH} 以避免溢出）`
+            : `已整理 ${cards.length} 張卡片`;
+        toast(msg, 'success');
+    }
 }
 
 // ============================================================
@@ -3476,9 +4038,20 @@ async function startAIClassify() {
         const mode = (uploadState && uploadState.mode) || 'classify';
         progress.textContent = `呼叫 ${providerId}（${model}）中…請稍候`;
         // 讀取 scaffold 控制（即使 classify 模式也讀，無傷）
-        const targetMain = parseInt(document.getElementById('upload-target-main').value, 10) || 0;
-        const targetSub = parseInt(document.getElementById('upload-target-sub').value, 10) || 0;
+        const minMain = parseInt(document.getElementById('upload-min-main').value, 10) || 0;
+        const maxMain = parseInt(document.getElementById('upload-max-main').value, 10) || 0;
+        const minSub = parseInt(document.getElementById('upload-min-sub').value, 10) || 0;
+        const maxSub = parseInt(document.getElementById('upload-max-sub').value, 10) || 0;
         const attachTags = !!document.getElementById('upload-attach-tags').checked;
+        // 範圍合理性驗證
+        if (minMain && maxMain && minMain > maxMain) {
+            progress.textContent = '❌ 主分類數最少不能大於最多';
+            return;
+        }
+        if (minSub && maxSub && minSub > maxSub) {
+            progress.textContent = '❌ 子分類數最少不能大於最多';
+            return;
+        }
 
         let r;
         if (mode === 'classify') {
@@ -3493,7 +4066,7 @@ async function startAIClassify() {
                 subject, userPrompt, providerId, model, projectData.tagLibrary,
                 {
                     signal: controller.signal,
-                    targetMainCount: targetMain, targetSubCount: targetSub,
+                    minMain, maxMain, minSub, maxSub,
                     attachTags, inspirationNames
                 }
             );
@@ -3502,6 +4075,10 @@ async function startAIClassify() {
         result.textContent = JSON.stringify(r.parsed, null, 2);
         snapshot('auto', mode === 'classify' ? '套用 AI 分類前自動備份' : '套用 AI 骨架前自動備份');
         applyClassificationResult(r.parsed, subject, { mode, attachTags });
+        // 後處理保險的提示
+        if (r.parsed && Array.isArray(r.parsed._adjustments) && r.parsed._adjustments.length) {
+            toast('系統自動調整：' + r.parsed._adjustments.join('；'), 'warning');
+        }
         toast(mode === 'classify' ? 'AI 分類完成並已套用' : 'AI 骨架建構完成並已套用', 'success');
     } catch (err) {
         console.error(err);
@@ -3582,9 +4159,9 @@ function applyClassificationResult(parsed, subject, opts) {
             });
         });
     });
-    applyLayout(AppStorage.Settings.getLayout() || 'tree-h');
-    renderCanvas(); updateTitleBar();
-    scheduleSaveDraft();
+    // AI 產生後自動套用智慧整理（會自動擴張白板，確保不溢出）
+    smartLayout({ silent: true, skipSnapshot: true });
+    updateTitleBar();
 }
 
 // ============================================================

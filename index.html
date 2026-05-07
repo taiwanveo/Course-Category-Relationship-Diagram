@@ -40,6 +40,7 @@
                         <button class="dropdown-item" data-aimode="classify"><span class="icon">📤</span><span><b>上傳班名做完整分類</b><br><small>把班名分到對應子分類並貼標籤</small></span></button>
                     </div>
                 </div>
+                <button id="btn-smart-layout" class="btn btn-toolbar" title="一鍵將卡片智慧整理（自動避免溢出畫布）">✨ 智慧整理</button>
                 <button id="btn-version-history" class="btn btn-toolbar" title="版本歷史">版本</button>
             </div>
             <div class="toolbar-right">
@@ -414,17 +415,24 @@
                         </div>
                         <!-- Scaffold 模式專用控制（憑空 / 靈感建構骨架時才顯示） -->
                         <div class="modal-field upload-scaffold-options" id="upload-scaffold-options" style="display:none;">
-                            <label>骨架規模 <span style="color:var(--text-muted);font-size:11px;">（留空則交給 AI 自由發揮）</span></label>
+                            <label>骨架規模（可指定上下限） <span style="color:var(--text-muted);font-size:11px;">最小／最大值留空則該方向交給 AI 自由發揮</span></label>
                             <div class="upload-scale-row">
-                                <span>主分類數</span>
-                                <input type="number" id="upload-target-main" min="1" max="20" placeholder="例：5" style="width:90px;">
-                                <span>每主分類的子分類數</span>
-                                <input type="number" id="upload-target-sub" min="1" max="15" placeholder="例：3" style="width:90px;">
+                                <span class="upload-scale-label">主分類數</span>
+                                <input type="number" id="upload-min-main" min="1" max="30" placeholder="最少" title="主分類數量下限" style="width:70px;">
+                                <span style="color:var(--text-muted);">～</span>
+                                <input type="number" id="upload-max-main" min="1" max="30" placeholder="最多" title="主分類數量上限" style="width:70px;">
+                            </div>
+                            <div class="upload-scale-row">
+                                <span class="upload-scale-label">每主分類的子分類數</span>
+                                <input type="number" id="upload-min-sub" min="1" max="20" placeholder="最少" title="子分類數量下限" style="width:70px;">
+                                <span style="color:var(--text-muted);">～</span>
+                                <input type="number" id="upload-max-sub" min="1" max="20" placeholder="最多" title="子分類數量上限" style="width:70px;">
                             </div>
                             <label class="upload-scaffold-checkbox">
                                 <input type="checkbox" id="upload-attach-tags" checked>
                                 <span>讓 AI 為每個子分類附上建議標籤（A/B/C/D/E 五大類各 0-3 個）</span>
                             </label>
+                            <small style="display:block;margin-top:6px;color:var(--text-muted);font-size:11px;">💡 系統會自動驗證 AI 結果，若不足下限會補空白卡片，若超過上限會截斷。</small>
                         </div>
                         <div class="modal-field">
                             <label>AI 供應商與模型 <span style="color:var(--text-muted);font-size:11px;">（即時抓取最新清單）</span></label>

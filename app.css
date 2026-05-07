@@ -2101,3 +2101,53 @@ body.connector-mode .component:hover {
     color: #fff;
     border-color: transparent;
 }
+
+/* =============================================
+   Marquee（框選）半透明矩形
+   ============================================= */
+.marquee-selection {
+    position: absolute;
+    border: 1.5px dashed #6366f1;
+    background: rgba(99, 102, 241, 0.10);
+    pointer-events: none;
+    z-index: 10000;
+    border-radius: 2px;
+}
+
+/* 框選命中時的瞬時高亮（非真正選取，只在框選過程中提示） */
+.component.marquee-hover {
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.6) !important;
+}
+
+/* =============================================
+   多選與群組視覺
+   ============================================= */
+/* 多選狀態下的元件：每個元件本身仍有 .selected，但加 .multi-selected 區隔 */
+.component.multi-selected {
+    /* 用稍微淡一點的色調強調是「同伴」而非主要選取 */
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.7);
+}
+/* 同時 .selected + .multi-selected：不顯示 resize handles，但給強框 */
+.component.selected.multi-selected::after {
+    content: none; /* 多選時不要顯示單選的角標 */
+}
+
+/* 群組（或多選）的虛線包圍框 */
+.group-bbox {
+    position: absolute;
+    border: 2px dashed #6366f1;
+    background: rgba(99, 102, 241, 0.04);
+    pointer-events: none;
+    z-index: 9990;
+    border-radius: 12px;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.6) inset;
+}
+/* 已正式群組（同 groupId）：實線深色強調 */
+.group-bbox.formal-group {
+    border-style: solid;
+    border-color: #f59e0b;
+    background: rgba(245, 158, 11, 0.06);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.7) inset, 0 4px 12px -4px rgba(245, 158, 11, 0.4);
+}
+[data-theme="dark"] .group-bbox { border-color: #818cf8; background: rgba(129, 140, 248, 0.08); }
+[data-theme="dark"] .group-bbox.formal-group { border-color: #fbbf24; background: rgba(251, 191, 36, 0.08); }
