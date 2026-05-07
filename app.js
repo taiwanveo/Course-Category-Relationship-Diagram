@@ -2757,11 +2757,18 @@ function showContextMenu(x, y, items) {
         menu.appendChild(el);
     });
     menu.style.display = 'block';
+    // 先重置位置避免上次的位置影響高度量測
+    menu.style.left = '0px';
+    menu.style.top = '0px';
     const rect = menu.getBoundingClientRect();
     let left = x, top = y;
     if (x + rect.width > window.innerWidth) left = window.innerWidth - rect.width - 8;
     if (y + rect.height > window.innerHeight) top = window.innerHeight - rect.height - 8;
-    menu.style.left = left + 'px'; menu.style.top = top + 'px';
+    // 防止頂端被截斷（選單比視窗還高時，max-height + overflow-y 已限制高度，這邊保險夾到 8px 邊距）
+    if (top < 8) top = 8;
+    if (left < 8) left = 8;
+    menu.style.left = left + 'px';
+    menu.style.top = top + 'px';
 }
 function hideContextMenu() {
     const menu = document.getElementById('context-menu');

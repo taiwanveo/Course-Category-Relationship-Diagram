@@ -1898,10 +1898,18 @@ body {
     box-shadow: var(--shadow-xl);
     padding: 6px;
     min-width: 200px;
+    /* 限制高度避免比視窗還高，超過時內部捲動 */
+    max-height: calc(100vh - 24px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
     z-index: 2000;
     font-size: 13px;
     color: var(--text-primary);
 }
+/* 自訂捲軸（細） */
+.context-menu::-webkit-scrollbar { width: 6px; }
+.context-menu::-webkit-scrollbar-thumb { background: rgba(100,116,139,0.4); border-radius: 3px; }
+.context-menu::-webkit-scrollbar-thumb:hover { background: rgba(100,116,139,0.6); }
 .context-menu-item {
     cursor: pointer;
     padding: 7px 12px;
