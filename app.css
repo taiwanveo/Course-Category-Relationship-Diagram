@@ -487,11 +487,11 @@ body {
 .sidebar-tip ul { list-style: none; }
 .sidebar-tip li { padding: 2px 0; }
 
-/* 圓形紅底白問號按鈕（縮小至原 2/3、75% 透明度，浮在右上角） */
+/* 圓形紅底白問號按鈕（縮小至原 2/3、75% 透明度，浮在 sidebar 標題列中間偏右） */
 .shortcuts-help-btn {
     position: absolute;
     top: 16px;
-    right: 32px;
+    right: 110px;
     width: 19px; height: 19px;
     border-radius: 50%;
     border: none;
