@@ -211,8 +211,11 @@ function applyViewMode(mode, opts) {
     const iconEl = document.getElementById('view-mode-icon');
     const labelEl = document.getElementById('view-mode-label');
     const btnEl = document.getElementById('btn-view-mode');
-    if (iconEl) iconEl.textContent = (m === 'skeleton') ? '🦴' : '👁️';
-    if (labelEl) labelEl.textContent = (m === 'skeleton') ? '骨架' : '完整';
+    // 按鈕採「動作式」：標示「點擊後會切到什麼」，避免使用者誤以為按下會留在當前模式
+    // 當前是 full → 按鈕顯示「🦴 切到骨架」（按下會去骨架）
+    // 當前是 skeleton → 按鈕顯示「👁️ 切回完整」（按下會回完整）
+    if (iconEl) iconEl.textContent = (m === 'skeleton') ? '👁️' : '🦴';
+    if (labelEl) labelEl.textContent = (m === 'skeleton') ? '切回完整' : '切到骨架';
     if (btnEl) {
         btnEl.classList.toggle('view-mode-skeleton', m === 'skeleton');
         btnEl.title = (m === 'skeleton')
@@ -5003,7 +5006,7 @@ async function exportHTML() {
 </style></head>
 <body><div class="viewer-toolbar"><h1>${escapeHtml(projectData.name || '分類圖')} <span style="font-size:11px;color:var(--text-muted);font-weight:400;">學科：${escapeHtml(projectData.subject || '')}</span></h1>
 <div class="viewer-toolbar-right">
-<button class="btn btn-small" id="vw-view-mode" title="切換顯示模式：完整 ↔ 骨架"><span id="vw-view-mode-icon">${currentViewMode === 'skeleton' ? '🦴' : '👁️'}</span> <span id="vw-view-mode-label">${currentViewMode === 'skeleton' ? '骨架' : '完整'}</span></button>
+<button class="btn btn-small" id="vw-view-mode" title="切換顯示模式：完整 ↔ 骨架"><span id="vw-view-mode-icon">${currentViewMode === 'skeleton' ? '👁️' : '🦴'}</span> <span id="vw-view-mode-label">${currentViewMode === 'skeleton' ? '切回完整' : '切到骨架'}</span></button>
 <span style="font-size:12px;color:var(--text-muted);" id="zoom-info">縮放 100%</span>
 <button class="btn btn-small" id="z-out">−</button>
 <button class="btn btn-small" id="z-fit">符合視窗</button>
@@ -5532,13 +5535,13 @@ function buildViewerScript() {
     document.getElementById('vw-outer').addEventListener('wheel', (e) => {
         if (e.ctrlKey) { e.preventDefault(); viewportZoom = Math.max(0.1, Math.min(4, viewportZoom * (e.deltaY < 0 ? 1.1 : 1/1.1))); applyZoom(); }
     }, { passive: false });
-    // 顯示模式切換（完整 ↔ 骨架）
+    // 顯示模式切換（完整 ↔ 骨架）— 採「動作式」按鈕標籤
     function applyViewMode(){
         document.documentElement.dataset.viewMode = currentViewMode;
         const ic = document.getElementById('vw-view-mode-icon');
         const lb = document.getElementById('vw-view-mode-label');
-        if (ic) ic.textContent = currentViewMode === 'skeleton' ? '🦴' : '👁️';
-        if (lb) lb.textContent = currentViewMode === 'skeleton' ? '骨架' : '完整';
+        if (ic) ic.textContent = currentViewMode === 'skeleton' ? '👁️' : '🦴';
+        if (lb) lb.textContent = currentViewMode === 'skeleton' ? '切回完整' : '切到骨架';
         renderAll();
     }
     document.getElementById('vw-view-mode').addEventListener('click', () => {
