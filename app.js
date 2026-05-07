@@ -945,7 +945,7 @@ function createComponent(type) {
             break;
         case 'button':
             base.w = 160; base.h = 44;
-            base.props = { text: '按鈕' };
+            base.props = { text: '' };
             base.style = { fontFamily: "'Noto Sans TC', sans-serif", fontSize: 16, backgroundColor: buttonPaletteSelectedColor, color: '#ffffff', fontWeight: 600, borderRadius: 999 };
             break;
         case 'tag':
@@ -1187,7 +1187,8 @@ function renderButtonComponent(div, comp) {
     div.style.fontSize = (s.fontSize || 16) + 'px';
     div.style.fontWeight = s.fontWeight || 600;
     div.style.borderRadius = (s.borderRadius != null ? s.borderRadius : 999) + 'px';
-    div.textContent = comp.props.text || '按鈕';
+    // 預設不顯示文字，僅作純色塊使用；使用者可透過屬性面板隨時加文字
+    div.textContent = comp.props.text || '';
 }
 function renderTagComponent(div, comp) {
     const s = comp.style;
@@ -1856,7 +1857,7 @@ function renderComponentPropertyHTML(comp) {
 function getTypeLabel(type) {
     return ({
         'course-category': '課程類別卡片',
-        'text': '文字', 'image': '圖片', 'link': '連結', 'button': '底色按鈕', 'tag': '獨立標籤'
+        'text': '文字', 'image': '圖片', 'link': '連結', 'button': '記號色塊', 'tag': '獨立標籤'
     })[type] || type;
 }
 
