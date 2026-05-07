@@ -3238,11 +3238,12 @@ function applyLayout(layoutId) {
 }
 
 // ============================================================
-// 智慧整理：依階層樹狀排版 + 自動擴張白板，確保所有卡片都在畫布內
-// 與 applyLayout('tree-h') 的差別：
-//   - 排版前計算「需要的最小 board 尺寸」，若不夠就自動擴大白板
-//   - 卡片寬高動態（取目前 cards 的實際 max w/h，避免 360x200 寫死）
-//   - 同時排版 course-category 卡與其他元件（其他元件保持原位置但會 clamp 到新 board 內）
+// 智慧整理：每個主分類各佔一個橫向 row（block），主在左、子分類成 grid 排在右
+// 設計目的：
+//   - 同一主分類的子分類「緊鄰自己的父節點」，連線最短、不交叉
+//   - 不同主分類的 block 上下堆疊，視覺結構清楚
+//   - 自動擴張白板，保證所有卡片在畫布內可見
+//   - 子分類過多時自動分多行（每行 SUB_PER_ROW 個），避免單行過寬
 // ============================================================
 function smartLayout(opts) {
     opts = opts || {};
@@ -3252,84 +3253,127 @@ function smartLayout(opts) {
         if (showToast) toast('沒有可整理的課程類別卡', 'info');
         return;
     }
-    // 取得實際卡片尺寸（以最大值當間距基準）
-    const cardW = Math.max(...cards.map(c => c.w || 360), 360);
-    const cardH = Math.max(...cards.map(c => c.h || 160), 160);
+    const cardW = Math.max(...cards.map(c => c.w || 320), 320);
+    const cardH = Math.max(...cards.map(c => c.h || 140), 140);
     const padding = 80;
-    const gapX = 80;            // 同列卡片水平間距用：colW = cardW + gapX
-    const gapY = 40;            // 同列卡片垂直間距：rowH = cardH + gapY
-    const colW = cardW + gapX;
-    const rowH = cardH + gapY;
+    const gapX = 50;
+    const gapY = 30;
+    const subColW = cardW + gapX;
+    const subRowH = cardH + gapY;
 
-    // 階層偵測（同 applyLayout 的 BFS）
+    // 建立 parent → children
     const childrenMap = new Map();
-    const incoming = new Map();
-    cards.forEach(c => { childrenMap.set(c.id, []); incoming.set(c.id, []); });
+    cards.forEach(c => childrenMap.set(c.id, []));
+    const incomingCount = new Map();
+    cards.forEach(c => incomingCount.set(c.id, 0));
     projectData.connectors.forEach(conn => {
         if (childrenMap.has(conn.fromComponentId) && cards.find(c => c.id === conn.toComponentId)) {
             childrenMap.get(conn.fromComponentId).push(conn.toComponentId);
-            incoming.get(conn.toComponentId).push(conn.fromComponentId);
+            incomingCount.set(conn.toComponentId, (incomingCount.get(conn.toComponentId) || 0) + 1);
         }
     });
-    const roots = cards.filter(c => (incoming.get(c.id) || []).length === 0);
-    const level = new Map();
-    const queue = [];
-    roots.forEach(r => { level.set(r.id, 0); queue.push(r.id); });
-    cards.forEach(c => { if (!level.has(c.id)) { level.set(c.id, 0); queue.push(c.id); } });
-    while (queue.length) {
-        const cur = queue.shift();
-        (childrenMap.get(cur) || []).forEach(ch => {
-            const nxt = level.get(cur) + 1;
-            if (!level.has(ch) || nxt > level.get(ch)) {
-                level.set(ch, nxt); queue.push(ch);
-            }
-        });
-    }
-    const byLevel = new Map();
-    cards.forEach(c => {
-        const l = level.get(c.id) || 0;
-        if (!byLevel.has(l)) byLevel.set(l, []);
-        byLevel.get(l).push(c);
-    });
-    const sortedLevels = Array.from(byLevel.keys()).sort((a, b) => a - b);
-    const numLevels = sortedLevels.length;
-    const maxRowsInOneLevel = Math.max(...Array.from(byLevel.values()).map(arr => arr.length));
+    const roots = cards.filter(c => (incomingCount.get(c.id) || 0) === 0);
+    const maxSubs = roots.length ? Math.max(0, ...roots.map(r => childrenMap.get(r.id).length)) : 0;
+    let SUB_PER_ROW;
+    if (maxSubs >= 9) SUB_PER_ROW = 5;
+    else if (maxSubs >= 6) SUB_PER_ROW = 4;
+    else SUB_PER_ROW = Math.max(3, maxSubs || 3);
 
-    // 計算需要的最小 board 尺寸
-    const neededW = padding * 2 + numLevels * colW;
-    const neededH = padding * 2 + maxRowsInOneLevel * rowH;
-    let boardW = projectData.board.w;
-    let boardH = projectData.board.h;
-    let boardChanged = false;
-    if (boardW < neededW) { boardW = Math.ceil(neededW / 100) * 100; boardChanged = true; }
-    if (boardH < neededH) { boardH = Math.ceil(neededH / 100) * 100; boardChanged = true; }
-    if (boardChanged) {
-        projectData.board.w = boardW;
-        projectData.board.h = boardH;
+    // 沒有任何 root（圈狀或全孤立）→ 純網格 layout
+    if (roots.length === 0) {
+        const N = cards.length;
+        const cols = Math.max(1, Math.ceil(Math.sqrt(N)));
+        const rowsCount = Math.ceil(N / cols);
+        cards.sort((a, b) => (a.props.title || '').localeCompare(b.props.title || ''));
+        cards.forEach((c, i) => {
+            c.x = padding + (i % cols) * subColW;
+            c.y = padding + Math.floor(i / cols) * subRowH;
+        });
+        const neededW = padding * 2 + cols * subColW - gapX;
+        const neededH = padding * 2 + rowsCount * subRowH - gapY;
+        if (projectData.board.w < neededW) projectData.board.w = Math.ceil(neededW / 100) * 100;
+        if (projectData.board.h < neededH) projectData.board.h = Math.ceil(neededH / 100) * 100;
+        applyBoardSettings(); renderCanvas(); scheduleSaveDraft();
+        if (!opts.skipSnapshot) snapshot('auto', '智慧整理（網格）');
+        if (showToast) toast(`已整理 ${N} 張孤立卡片為網格`, 'success');
+        return;
     }
 
-    // 排版：每層 X 固定，垂直置中
-    sortedLevels.forEach(lv => {
-        const arr = byLevel.get(lv);
-        // 同一主分類的子分類盡量挨在父節點旁（依父的 y 排序）
-        arr.sort((a, b) => {
-            const pa = (incoming.get(a.id) || [])[0];
-            const pb = (incoming.get(b.id) || [])[0];
-            const pay = pa ? (cards.find(c => c.id === pa) || {}).y || 0 : 0;
-            const pby = pb ? (cards.find(c => c.id === pb) || {}).y || 0 : 0;
-            if (pay !== pby) return pay - pby;
-            return (a.props.title || '').localeCompare(b.props.title || '');
+    // 計算每個 root 的 block 尺寸
+    const blocks = roots.map(root => {
+        const subs = childrenMap.get(root.id).map(id => cards.find(c => c.id === id)).filter(Boolean);
+        const subCount = subs.length;
+        const subRows = Math.max(1, Math.ceil(subCount / SUB_PER_ROW));
+        const subCols = Math.min(subCount, SUB_PER_ROW) || 0;
+        const blockH = Math.max(cardH, subRows * subRowH - gapY);
+        const blockW = subCount > 0 ? cardW + gapX + subCols * subColW - gapX : cardW;
+        return { root, subs, subRows, subCols, blockH, blockW };
+    });
+    const maxBlockW = Math.max(...blocks.map(b => b.blockW), cardW);
+    const totalBlocksH = blocks.reduce((acc, b) => acc + b.blockH, 0) + Math.max(0, blocks.length - 1) * gapY;
+
+    // 孤立卡片
+    const placed = new Set();
+    blocks.forEach(b => { placed.add(b.root.id); b.subs.forEach(s => placed.add(s.id)); });
+    const orphans = cards.filter(c => !placed.has(c.id));
+    let orphanH = 0, orphanCols = 0;
+    if (orphans.length > 0) {
+        orphanCols = Math.min(orphans.length, SUB_PER_ROW + 1);
+        const orphanRows = Math.ceil(orphans.length / orphanCols);
+        orphanH = orphanRows * subRowH - gapY + 60;
+    }
+
+    // 計算所需白板尺寸 → 自動擴張（永遠以 layout 結果為準）
+    const neededW = padding * 2 + Math.max(maxBlockW, orphanCols * subColW - gapX);
+    const neededH = padding * 2 + totalBlocksH + orphanH;
+    const newBoardW = Math.max(projectData.board.w, Math.ceil(neededW / 100) * 100);
+    const newBoardH = Math.max(projectData.board.h, Math.ceil(neededH / 100) * 100);
+    const boardChanged = newBoardW !== projectData.board.w || newBoardH !== projectData.board.h;
+    projectData.board.w = newBoardW;
+    projectData.board.h = newBoardH;
+
+    // 排版：每個 block 一個橫條 row
+    let curY = padding;
+    blocks.forEach(b => {
+        b.root.x = padding;
+        b.root.y = curY + (b.blockH - cardH) / 2;
+        const subStartX = padding + cardW + gapX;
+        const subTotalH = b.subRows * subRowH - gapY;
+        const subStartY = curY + (b.blockH - subTotalH) / 2;
+        b.subs.forEach((sub, i) => {
+            const col = i % SUB_PER_ROW;
+            const r = Math.floor(i / SUB_PER_ROW);
+            sub.x = subStartX + col * subColW;
+            sub.y = subStartY + r * subRowH;
         });
-        const colX = padding + lv * colW;
-        const totalH = arr.length * rowH - gapY;
-        const startY = Math.max(padding, (boardH - totalH) / 2);
-        arr.forEach((card, i) => { card.x = colX; card.y = startY + i * rowH; });
+        curY += b.blockH + gapY;
     });
 
-    // 其他元件（非 course-category）：clamp 到新 board 內，避免被裁切
+    // 孤立卡片：在最後 block 下方
+    if (orphans.length > 0) {
+        curY += 30;
+        orphans.sort((a, b) => (a.props.title || '').localeCompare(b.props.title || ''));
+        orphans.forEach((c, i) => {
+            c.x = padding + (i % orphanCols) * subColW;
+            c.y = curY + Math.floor(i / orphanCols) * subRowH;
+        });
+    }
+
+    // 其他元件 clamp
     projectData.components.filter(c => c.type !== 'course-category').forEach(c => {
-        c.x = Math.max(0, Math.min(boardW - c.w, c.x));
-        c.y = Math.max(0, Math.min(boardH - c.h, c.y));
+        c.x = Math.max(0, Math.min(projectData.board.w - c.w, c.x));
+        c.y = Math.max(0, Math.min(projectData.board.h - c.h, c.y));
+    });
+
+    // 連線重置：清空 waypoints 並改用 orthogonal 路由（直角折線視覺最清楚）
+    projectData.connectors.forEach(conn => {
+        const fromCard = cards.find(c => c.id === conn.fromComponentId);
+        const toCard = cards.find(c => c.id === conn.toComponentId);
+        if (!fromCard || !toCard) return;
+        conn.waypoints = [];
+        if ((incomingCount.get(fromCard.id) || 0) === 0 && (incomingCount.get(toCard.id) || 0) > 0) {
+            conn.routeType = 'orthogonal';
+        }
     });
 
     applyBoardSettings();
@@ -3338,10 +3382,13 @@ function smartLayout(opts) {
     if (!opts.skipSnapshot) snapshot('auto', '智慧整理排版');
     if (showToast) {
         const msg = boardChanged
-            ? `已整理 ${cards.length} 張卡片（白板已自動擴大為 ${boardW}×${boardH} 以避免溢出）`
+            ? `已整理 ${cards.length} 張卡片（白板已擴大為 ${projectData.board.w}×${projectData.board.h}）`
             : `已整理 ${cards.length} 張卡片`;
         toast(msg, 'success');
     }
+    // 排版完跳到左上角看主結構
+    const wrapper = document.getElementById('canvas-wrapper-outer');
+    if (wrapper) { wrapper.scrollTop = 0; wrapper.scrollLeft = 0; }
 }
 
 // ============================================================
@@ -4098,11 +4145,12 @@ function applyClassificationResult(parsed, subject, opts) {
     const mode = opts.mode || 'classify';
     const isScaffold = mode === 'scaffold-empty' || mode === 'scaffold-inspired';
     if (subject) projectData.subject = subject;
-    // 清空既有 cards/connectors（保留其他元件）
+    // 清空既有 cards/connectors（保留其他元件，及只連接其他元件的連線）
     const others = projectData.components.filter(c => c.type !== 'course-category');
+    const otherIds = new Set(others.map(o => o.id));
     projectData.components = others;
     projectData.connectors = projectData.connectors.filter(c =>
-        !others.find(o => o.id === c.fromComponentId) && !others.find(o => o.id === c.toComponentId)
+        otherIds.has(c.fromComponentId) && otherIds.has(c.toComponentId)
     );
     // scaffold-inspired：把上傳的班名存到 inspirationClasses（不放入卡片）
     if (mode === 'scaffold-inspired' && uploadState && Array.isArray(uploadState.classNames)) {
