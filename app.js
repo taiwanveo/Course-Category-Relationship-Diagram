@@ -130,7 +130,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
 async function boot() {
     applyTheme(AppStorage.Settings.getTheme());
-    applyPalette(AppStorage.Settings.getPalette());
+    // boot 階段：只設定 dataset/CSS 變數，不要去動既存卡片的 borderColor
+    applyPalette(AppStorage.Settings.getPalette(), { applyToCards: false });
     applyViewMode(AppStorage.Settings.getViewMode(), { silent: true });
 
     // 嘗試遷移 v1 草稿
@@ -193,9 +194,55 @@ function applyTheme(mode) {
     if (icon) icon.textContent = (mode === 'dark') ? '☀️' : '🌙';
     AppStorage.Settings.setTheme(mode);
 }
-function applyPalette(paletteId) {
-    document.documentElement.dataset.palette = paletteId || 'aurora';
-    AppStorage.Settings.setPalette(paletteId || 'aurora');
+function applyPalette(paletteId, opts) {
+    opts = opts || {};
+    const id = paletteId || 'aurora';
+    document.documentElement.dataset.palette = id;
+    AppStorage.Settings.setPalette(id);
+    // 預設行為：套用到所有既存的課程類別卡（主/子/孤立各用 palette 對應的色）
+    if (opts.applyToCards !== false && typeof projectData !== 'undefined' && projectData) {
+        applyPaletteToCards(id, { silent: opts.silent });
+    }
+}
+
+// 取得目前 palette 對應的顏色組合
+function getPaletteColors(paletteId) {
+    const id = paletteId || AppStorage.Settings.getPalette() || 'aurora';
+    const p = PALETTES.find(x => x.id === id) || PALETTES[0];
+    return { main: p.swatches[0], sub: p.swatches[1], orphan: p.swatches[2] || p.swatches[0], all: p.swatches };
+}
+
+// 把 palette 套到所有既存的課程類別卡（主/子/孤立各使用對應色）
+function applyPaletteToCards(paletteId, opts) {
+    opts = opts || {};
+    if (!projectData) return;
+    const cols = getPaletteColors(paletteId);
+    const cards = projectData.components.filter(c => c.type === 'course-category');
+    if (cards.length === 0) {
+        if (!opts.silent) toast(`已切換為「${(PALETTES.find(p => p.id === paletteId) || {}).name || paletteId}」配色方案`, 'info');
+        return;
+    }
+    let count = 0;
+    cards.forEach(card => {
+        const hasIncoming = projectData.connectors.some(cn => cn.toComponentId === card.id);
+        const hasOutgoing = projectData.connectors.some(cn => cn.fromComponentId === card.id);
+        let color;
+        if (!hasIncoming && hasOutgoing) color = cols.main;       // 主分類
+        else if (hasIncoming) color = cols.sub;                    // 子分類
+        else color = cols.orphan;                                  // 孤立
+        if (card.style.borderColor !== color) {
+            card.style.borderColor = color;
+            count++;
+        }
+    });
+    if (count > 0) {
+        snapshot('auto', `套用配色方案：${(PALETTES.find(p => p.id === paletteId) || {}).name || paletteId}`);
+        renderCanvas();
+        scheduleSaveDraft();
+        if (!opts.silent) toast(`配色方案已套用到 ${count} 張卡片（如不滿意可從「版本」還原）`, 'success');
+    } else if (!opts.silent) {
+        toast(`已切換為「${(PALETTES.find(p => p.id === paletteId) || {}).name || paletteId}」配色方案`, 'info');
+    }
 }
 
 // ============================================================
@@ -858,7 +905,7 @@ function createComponent(type) {
                 subtitleFontSize: 14,
                 color: '#0f172a',
                 backgroundColor: '#ffffff',
-                borderColor: '#6366f1',
+                borderColor: (typeof getPaletteColors === 'function' ? getPaletteColors().main : '#6366f1'),
                 borderWidth: 1,
                 borderStyle: 'solid',
                 borderRadius: 16,
@@ -4312,6 +4359,7 @@ function applyClassificationResult(parsed, subject, opts) {
         projectData.inspirationClasses = uploadState.classNames.slice();
     }
     // 建立卡片：每個 category + 每個 subcategory 各一張卡
+    const palCols = (typeof getPaletteColors === 'function' ? getPaletteColors() : { main: '#6366f1', sub: '#ec4899' });
     const colW = 360, rowH = 200;
     parsed.categories.forEach((cat, ci) => {
         const catCard = createComponent('course-category');
@@ -4320,8 +4368,8 @@ function applyClassificationResult(parsed, subject, opts) {
         catCard.x = 100;
         catCard.y = 100 + ci * rowH * 2;
         catCard.zIndex = nextTopZIndex();
-        catCard.style.backgroundColor = '#eef2ff';
-        catCard.style.borderColor = '#6366f1';
+        catCard.style.backgroundColor = '#ffffff';
+        catCard.style.borderColor = palCols.main;
         projectData.components.push(catCard);
         (cat.subcategories || []).forEach((sub, si) => {
             const subCard = createComponent('course-category');
@@ -4330,6 +4378,7 @@ function applyClassificationResult(parsed, subject, opts) {
             subCard.x = 100 + colW + si * (colW * 0.8);
             subCard.y = 100 + ci * rowH * 2 + si * 30;
             subCard.zIndex = nextTopZIndex();
+            subCard.style.borderColor = palCols.sub;
             // scaffold 模式：把 sub.tags（若 AI 有附）寫到子卡的 assignedTags 上
             if (isScaffold && sub.tags && typeof sub.tags === 'object') {
                 TAG_CATEGORY_KEYS.forEach(cat => {
