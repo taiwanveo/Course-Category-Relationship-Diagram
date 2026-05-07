@@ -25,6 +25,7 @@
                 <button id="btn-board-settings" class="btn btn-toolbar" title="白板尺寸與背景">白板</button>
                 <button id="btn-tag-manager" class="btn btn-toolbar" title="管理五大類標籤">標籤</button>
                 <button id="btn-theme-palette" class="btn btn-toolbar" title="版型與配色">版型/配色</button>
+                <button id="btn-smart-layout" class="btn btn-toolbar" title="一鍵將卡片智慧整理（自動避免溢出畫布）">✨ 智慧整理</button>
                 <button id="btn-ai-settings" class="btn btn-toolbar btn-ai" title="AI 模型與 API Key 設定">
                     <span>AI 設定</span>
                 </button>
@@ -40,7 +41,6 @@
                         <button class="dropdown-item" data-aimode="classify"><span class="icon">📤</span><span><b>上傳班名做完整分類</b><br><small>把班名分到對應子分類並貼標籤</small></span></button>
                     </div>
                 </div>
-                <button id="btn-smart-layout" class="btn btn-toolbar" title="一鍵將卡片智慧整理（自動避免溢出畫布）">✨ 智慧整理</button>
                 <button id="btn-version-history" class="btn btn-toolbar" title="版本歷史">版本</button>
             </div>
             <div class="toolbar-right">
@@ -119,6 +119,10 @@
                         <li>Esc：取消連線/選取</li>
                         <li>Delete：刪除選取</li>
                         <li>Ctrl+滾輪：縮放</li>
+                        <li>空白處拖曳：框選多個</li>
+                        <li>Shift+左鍵：累加選取</li>
+                        <li>Ctrl+A：全選元件</li>
+                        <li>Ctrl+G / Ctrl+Shift+G：群組／解除</li>
                     </ul>
                 </div>
             </aside>
