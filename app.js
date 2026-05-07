@@ -217,7 +217,10 @@ function applyViewMode(mode, opts) {
             ? '當前：骨架模式（班名與標籤已隱藏）。點擊切回完整模式。'
             : '當前：完整模式。點擊切到骨架模式（暫時隱藏班名與標籤）';
     }
-    if (typeof renderCanvas === 'function') renderCanvas();
+    // 只有 projectData 已就緒才重繪（boot 時會在 setActiveDiagram 之後另外觸發 renderCanvas）
+    if (typeof projectData !== 'undefined' && projectData && typeof renderCanvas === 'function') {
+        renderCanvas();
+    }
     if (!opts.silent) {
         toast(m === 'skeleton' ? '已切換為骨架模式（班名暫時隱藏）' : '已切換為完整模式', 'info');
     }
