@@ -422,6 +422,37 @@ body {
     color: #fff;
     border-color: var(--accent);
 }
+/* 「新增連線」按鈕專屬：深藍配色（區隔淺藍青色的一般 action 按鈕） */
+.component-btn-connector {
+    background: #dbeafe;          /* 淡藍底 */
+    border-color: #1e40af;        /* 深藍邊 */
+    color: #1e3a8a;               /* 深藍字 */
+    font-weight: 600;
+}
+.component-btn-connector:hover {
+    background: #bfdbfe;
+    border-color: #1e3a8a;
+    color: #1e3a8a;
+}
+.component-btn-connector.active {
+    background: #1e40af;          /* 啟用：深藍背景 */
+    color: #ffffff;
+    border-color: #1e3a8a;
+}
+[data-theme="dark"] .component-btn-connector {
+    background: #1e3a8a;
+    border-color: #60a5fa;
+    color: #bfdbfe;
+}
+[data-theme="dark"] .component-btn-connector:hover {
+    background: #1e40af;
+    color: #dbeafe;
+}
+[data-theme="dark"] .component-btn-connector.active {
+    background: #60a5fa;
+    color: #0b1220;
+    border-color: #93c5fd;
+}
 
 .sidebar-tip {
     margin-top: auto;
