@@ -855,12 +855,12 @@ function createComponent(type) {
                 subtitleFontSize: 14,
                 color: '#0f172a',
                 backgroundColor: '#ffffff',
-                borderColor: '#2563eb',
-                borderWidth: 2,
+                borderColor: '#6366f1',
+                borderWidth: 1,
                 borderStyle: 'solid',
-                borderRadius: 14,
-                padding: 14,
-                boxShadow: '0 2px 6px rgba(0,0,0,0.08)',
+                borderRadius: 16,
+                padding: 16,
+                boxShadow: '',
                 textAlign: 'left',
                 tagPosition: 'bottom'
             };
@@ -1011,13 +1011,24 @@ function createComponentElement(comp) {
 
 function renderCategoryCard(div, comp) {
     div.dataset.tagPosition = comp.style.tagPosition || 'bottom';
+    // 偵測是否為主分類（有 outgoing connector 但沒 incoming），給 ::before accent strip 用
+    if (typeof projectData !== 'undefined' && projectData) {
+        const hasIncoming = projectData.connectors.some(cn => cn.toComponentId === comp.id);
+        const hasOutgoing = projectData.connectors.some(cn => cn.fromComponentId === comp.id);
+        if (!hasIncoming && hasOutgoing) div.dataset.role = 'main';
+        else if (hasIncoming) div.dataset.role = 'sub';
+        else delete div.dataset.role;
+    }
     const s = comp.style;
+    // accent strip 顏色（用 borderColor 當主色，由 CSS ::before 顯示）
+    div.style.setProperty('--card-accent', s.borderColor || '#6366f1');
     div.style.background = s.backgroundColor;
     div.style.color = s.color;
     div.style.borderColor = s.borderColor;
-    div.style.borderWidth = (s.borderWidth || 2) + 'px';
+    // 預設細邊框（1px），保留使用者自訂 borderWidth
+    div.style.borderWidth = (s.borderWidth || 1) + 'px';
     div.style.borderStyle = s.borderStyle || 'solid';
-    div.style.borderRadius = (s.borderRadius || 14) + 'px';
+    div.style.borderRadius = (s.borderRadius || 16) + 'px';
     div.style.boxShadow = s.boxShadow || '';
     div.style.fontFamily = s.fontFamily || 'inherit';
     div.style.textAlign = s.textAlign || 'left';
@@ -1225,16 +1236,26 @@ function setupDrag(element, component) {
         isDragging = true; dragStarted = false;
         startX = e.clientX; startY = e.clientY;
 
-        // 計算「實際要拖的元件集合」
-        // 1. 若按 Shift/Ctrl：當前點到的元件加入選取（不立即重設）
-        // 2. 若 component 已在 selectedComponentIds：拖整個 selection
-        // 3. 若 component 不在 selectedComponentIds：拖單一（先單選）
-        // 4. 群組 (groupId)：自動把整組納入
+        // 計算「實際要拖的元件集合」優先順序：
+        //   1. 已在 selectedComponentIds 中（多選） → 拖整個 selection
+        //   2. 有 groupId → 拖整組
+        //   3. 是「主分類」（course-category 且無 incoming、有 outgoing） → 連帶下游所有 card 一起平移
+        //   4. 其他 → 只拖自己
         let dragIds;
         if (selectedComponentIds.has(component.id) && selectedComponentIds.size > 1) {
             dragIds = Array.from(selectedComponentIds);
-        } else {
+        } else if (component.groupId) {
             dragIds = Array.from(expandSelectionByGroup(component.id));
+        } else if (component.type === 'course-category') {
+            const hasIncoming = projectData.connectors.some(cn => cn.toComponentId === component.id);
+            const hasOutgoing = projectData.connectors.some(cn => cn.fromComponentId === component.id);
+            if (!hasIncoming && hasOutgoing) {
+                dragIds = Array.from(getDownstreamCardIds(component.id));
+            } else {
+                dragIds = [component.id];
+            }
+        } else {
+            dragIds = [component.id];
         }
         dragSet = dragIds.map(id => {
             const c = getComponent(id);
@@ -1359,6 +1380,28 @@ function expandSelectionByGroup(id) {
     return new Set(ids);
 }
 
+// 給定一個 card id，回傳「自己 + 所有下游 card」（透過連線往下找子孫，BFS）
+// 用於：拖曳主分類時連帶帶動子分類（不論是否群組化）
+function getDownstreamCardIds(id) {
+    const result = new Set([id]);
+    const comp = getComponent(id);
+    if (!comp || comp.type !== 'course-category') return result;
+    const queue = [id];
+    while (queue.length) {
+        const cur = queue.shift();
+        projectData.connectors.forEach(conn => {
+            if (conn.fromComponentId === cur && !result.has(conn.toComponentId)) {
+                const child = getComponent(conn.toComponentId);
+                if (child && child.type === 'course-category') {
+                    result.add(child.id);
+                    queue.push(child.id);
+                }
+            }
+        });
+    }
+    return result;
+}
+
 function selectComponent(id, opts) {
     opts = opts || {};
     selectedConnectorId = null;
@@ -1417,14 +1460,21 @@ function selectComponents(ids) {
 
 // 重新渲染所有選取相關的視覺（.selected class、resize handles、群組外框）
 function refreshSelectionVisuals() {
-    document.querySelectorAll('.component').forEach(el => el.classList.remove('selected', 'multi-selected'));
+    document.querySelectorAll('.component').forEach(el => el.classList.remove('selected', 'multi-selected', 'in-formal-group'));
     document.querySelectorAll('.connector-path').forEach(el => el.classList.remove('selected'));
     document.querySelectorAll('.resize-handle').forEach(h => h.remove());
+    // 偵測：當前選取是否屬於同一個正式 groupId
+    const selComps = Array.from(selectedComponentIds).map(id => getComponent(id)).filter(Boolean);
+    const groupIds = new Set(selComps.map(c => c.groupId).filter(Boolean));
+    const isFormalGroup = selComps.length >= 2 && groupIds.size === 1 && selComps.every(c => c.groupId);
     selectedComponentIds.forEach(id => {
         const el = document.querySelector(`[data-component-id="${id}"]`);
         if (!el) return;
         el.classList.add('selected');
-        if (selectedComponentIds.size > 1) el.classList.add('multi-selected');
+        if (selectedComponentIds.size > 1) {
+            el.classList.add('multi-selected');
+            if (isFormalGroup) el.classList.add('in-formal-group');
+        }
     });
     // 單選且未鎖定：加 resize handles
     if (selectedComponentIds.size === 1) {
@@ -2291,6 +2341,8 @@ function renderConnectors() {
         path.setAttribute('d', calc.d);
         path.setAttribute('stroke', color);
         path.setAttribute('stroke-width', width);
+        path.setAttribute('stroke-linecap', 'round');
+        path.setAttribute('stroke-linejoin', 'round');
         path.setAttribute('fill', 'none');
         path.style.pointerEvents = 'none';
         if (dash) path.setAttribute('stroke-dasharray', dash);
@@ -2567,7 +2619,15 @@ function showComponentContextMenu(e, comp) {
     }
     items.push({ separator: true });
     items.push({ label: '從此拉連線到…', icon: '↔️', action: () => enterConnectorMode(comp.id) });
-    if (comp.type === 'course-category') items.push({ label: '選取所有下游類別', icon: '⊞', action: () => selectDownstream(comp.id) });
+    if (comp.type === 'course-category') {
+        items.push({ label: '選取所有下游類別', icon: '⊞', action: () => selectDownstream(comp.id) });
+        // 主分類（無 incoming、有 outgoing）才提供「智慧整理此分支」
+        const hasIncoming = projectData.connectors.some(cn => cn.toComponentId === comp.id);
+        const hasOutgoing = projectData.connectors.some(cn => cn.fromComponentId === comp.id);
+        if (!hasIncoming && hasOutgoing) {
+            items.push({ label: '✨ 智慧整理此分支', icon: '🧹', action: () => smartLayoutBranch(comp.id) });
+        }
+    }
     // 群組相關（多選 / 已群組時才有意義）
     const isMulti = selectedComponentIds.size > 1 && selectedComponentIds.has(comp.id);
     if (isMulti) {
@@ -3255,9 +3315,11 @@ function smartLayout(opts) {
     }
     const cardW = Math.max(...cards.map(c => c.w || 320), 320);
     const cardH = Math.max(...cards.map(c => c.h || 140), 140);
-    const padding = 80;
-    const gapX = 50;
-    const gapY = 30;
+    const padding = 100;
+    const gapX = 90;            // 子分類同行水平間距
+    const gapY = 50;             // 子分類同列垂直間距
+    const mainToSubGap = 140;    // 主分類 → 子分類群的水平間距（拉大避免擁擠）
+    const blockGap = 80;         // 不同主分類 block 之間的垂直間距
     const subColW = cardW + gapX;
     const subRowH = cardH + gapY;
 
@@ -3306,11 +3368,11 @@ function smartLayout(opts) {
         const subRows = Math.max(1, Math.ceil(subCount / SUB_PER_ROW));
         const subCols = Math.min(subCount, SUB_PER_ROW) || 0;
         const blockH = Math.max(cardH, subRows * subRowH - gapY);
-        const blockW = subCount > 0 ? cardW + gapX + subCols * subColW - gapX : cardW;
+        const blockW = subCount > 0 ? cardW + mainToSubGap + subCols * subColW - gapX : cardW;
         return { root, subs, subRows, subCols, blockH, blockW };
     });
     const maxBlockW = Math.max(...blocks.map(b => b.blockW), cardW);
-    const totalBlocksH = blocks.reduce((acc, b) => acc + b.blockH, 0) + Math.max(0, blocks.length - 1) * gapY;
+    const totalBlocksH = blocks.reduce((acc, b) => acc + b.blockH, 0) + Math.max(0, blocks.length - 1) * blockGap;
 
     // 孤立卡片
     const placed = new Set();
@@ -3332,12 +3394,12 @@ function smartLayout(opts) {
     projectData.board.w = newBoardW;
     projectData.board.h = newBoardH;
 
-    // 排版：每個 block 一個橫條 row
+    // 排版：每個 block 一個橫條 row + 自動群組化（同 block 主+子分類分配同一 groupId）
     let curY = padding;
     blocks.forEach(b => {
         b.root.x = padding;
         b.root.y = curY + (b.blockH - cardH) / 2;
-        const subStartX = padding + cardW + gapX;
+        const subStartX = padding + cardW + mainToSubGap;
         const subTotalH = b.subRows * subRowH - gapY;
         const subStartY = curY + (b.blockH - subTotalH) / 2;
         b.subs.forEach((sub, i) => {
@@ -3346,7 +3408,19 @@ function smartLayout(opts) {
             sub.x = subStartX + col * subColW;
             sub.y = subStartY + r * subRowH;
         });
-        curY += b.blockH + gapY;
+        // 自動群組化（若使用者尚未指定 groupId，或 block 內成員 groupId 不一致 → 統一賦值新 groupId）
+        if (opts.autoGroup !== false && b.subs.length > 0) {
+            const ids = [b.root.id, ...b.subs.map(s => s.id)];
+            const existingGroups = new Set(ids.map(id => getComponent(id) && getComponent(id).groupId).filter(Boolean));
+            const allShareSame = existingGroups.size === 1
+                && b.root.groupId
+                && b.subs.every(s => s.groupId === b.root.groupId);
+            if (!allShareSame) {
+                const gid = 'g' + Date.now() + '_' + (groupIdCounter++);
+                ids.forEach(id => { const c = getComponent(id); if (c) c.groupId = gid; });
+            }
+        }
+        curY += b.blockH + blockGap;
     });
 
     // 孤立卡片：在最後 block 下方
@@ -3389,6 +3463,84 @@ function smartLayout(opts) {
     // 排版完跳到左上角看主結構
     const wrapper = document.getElementById('canvas-wrapper-outer');
     if (wrapper) { wrapper.scrollTop = 0; wrapper.scrollLeft = 0; }
+}
+
+// 智慧整理「單一分支」：選取一個主分類後，僅重排該主分類與其直系子分類
+// 維持其他分支與元件位置不變，並把此分支放回原本主分類左上角附近
+function smartLayoutBranch(rootId) {
+    const root = getComponent(rootId);
+    if (!root || root.type !== 'course-category') {
+        toast('請選取一個課程類別主分類', 'warning');
+        return;
+    }
+    // 收集直系子分類（透過 connector 找）
+    const subIds = projectData.connectors
+        .filter(c => c.fromComponentId === rootId)
+        .map(c => c.toComponentId)
+        .filter(id => {
+            const x = getComponent(id);
+            return x && x.type === 'course-category';
+        });
+    if (subIds.length === 0) {
+        toast('此主分類沒有任何子分類，無需整理', 'info');
+        return;
+    }
+    const subs = subIds.map(id => getComponent(id)).filter(Boolean);
+    const allCards = [root, ...subs];
+    const cardW = Math.max(...allCards.map(c => c.w || 320), 320);
+    const cardH = Math.max(...allCards.map(c => c.h || 140), 140);
+    const gapX = 90, gapY = 50;
+    const mainToSubGap = 140;
+    const subColW = cardW + gapX;
+    const subRowH = cardH + gapY;
+    const subCount = subs.length;
+    let SUB_PER_ROW;
+    if (subCount >= 9) SUB_PER_ROW = 5;
+    else if (subCount >= 6) SUB_PER_ROW = 4;
+    else SUB_PER_ROW = Math.max(3, subCount);
+    const subRows = Math.max(1, Math.ceil(subCount / SUB_PER_ROW));
+    const subCols = Math.min(subCount, SUB_PER_ROW);
+    const blockH = Math.max(cardH, subRows * subRowH - gapY);
+    const blockW = cardW + mainToSubGap + subCols * subColW - gapX;
+
+    // 起點：以原本 root 的左上角當錨點（避免整個分支跳到別處）
+    const anchorX = root.x;
+    const anchorY = root.y - (blockH - cardH) / 2;
+    // 計算放置區域，若會超出畫布右下，自動擴張白板
+    const needBoardW = anchorX + blockW + 80;
+    const needBoardH = anchorY + blockH + 80;
+    if (projectData.board.w < needBoardW) projectData.board.w = Math.ceil(needBoardW / 100) * 100;
+    if (projectData.board.h < needBoardH) projectData.board.h = Math.ceil(needBoardH / 100) * 100;
+
+    root.x = anchorX;
+    root.y = anchorY + (blockH - cardH) / 2;
+    const subStartX = anchorX + cardW + mainToSubGap;
+    const subTotalH = subRows * subRowH - gapY;
+    const subStartY = anchorY + (blockH - subTotalH) / 2;
+    subs.forEach((sub, i) => {
+        const col = i % SUB_PER_ROW;
+        const r = Math.floor(i / SUB_PER_ROW);
+        sub.x = subStartX + col * subColW;
+        sub.y = subStartY + r * subRowH;
+    });
+    // 此分支自動群組化
+    const ids = [root.id, ...subs.map(s => s.id)];
+    const existingGroup = root.groupId;
+    const allShareSame = existingGroup && subs.every(s => s.groupId === existingGroup);
+    const gid = allShareSame ? existingGroup : ('g' + Date.now() + '_' + (groupIdCounter++));
+    ids.forEach(id => { const c = getComponent(id); if (c) c.groupId = gid; });
+    // 重置此分支內連線
+    projectData.connectors.forEach(conn => {
+        if (conn.fromComponentId === rootId && subIds.includes(conn.toComponentId)) {
+            conn.waypoints = [];
+            conn.routeType = 'orthogonal';
+        }
+    });
+    snapshot('auto', `智慧整理分支：${root.props.title || '未命名主分類'}`);
+    applyBoardSettings();
+    renderCanvas();
+    scheduleSaveDraft();
+    toast(`已整理「${root.props.title || '主分類'}」與其下 ${subs.length} 個子分類`, 'success');
 }
 
 // ============================================================

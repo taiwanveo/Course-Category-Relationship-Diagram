@@ -536,8 +536,17 @@ body {
     pointer-events: none;
     z-index: 1;
 }
-.connector-layer .connector-path { fill: none; pointer-events: none; transition: stroke-width 0.1s; }
-.connector-layer .connector-path.selected { filter: drop-shadow(0 0 4px var(--primary)); }
+.connector-layer .connector-path {
+    fill: none;
+    pointer-events: none;
+    transition: stroke-width 0.15s ease, filter 0.15s ease;
+    filter: drop-shadow(0 1px 1px rgba(15,23,42,0.18));
+}
+.connector-layer .connector-path.selected {
+    filter: drop-shadow(0 0 6px var(--primary)) drop-shadow(0 1px 2px rgba(15,23,42,0.3));
+    stroke-width: 3.5px !important;
+}
+[data-theme="dark"] .connector-layer .connector-path { filter: drop-shadow(0 1px 1px rgba(0,0,0,0.6)); }
 .connector-layer .connector-hit {
     fill: none;
     stroke: transparent;
@@ -675,35 +684,78 @@ body {
 }
 
 /* =============================================
-   課程類別卡（立體升級）
+   課程類別卡（立體升級 v2 — 仿 shadcn / Linear / Notion 風格）
    ============================================= */
 .component-card {
     display: flex;
     flex-direction: column;
-    border: 2px solid var(--card-accent, #2563eb);
-    border-radius: 14px;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 16px;
     background: var(--bg-card);
     overflow: hidden;
-    box-shadow: var(--shadow-card-3d);
-    transition: transform 0.15s, box-shadow 0.15s;
+    /* 多層陰影：模仿 Linear / Notion 那種微妙的深度感 */
+    box-shadow:
+        0 0 0 1px rgba(15, 23, 42, 0.04),
+        0 1px 2px rgba(15, 23, 42, 0.04),
+        0 4px 12px -4px rgba(15, 23, 42, 0.08),
+        0 12px 28px -10px rgba(15, 23, 42, 0.12);
+    transition: transform 0.18s cubic-bezier(.4,0,.2,1), box-shadow 0.18s cubic-bezier(.4,0,.2,1);
     position: absolute;
 }
+/* 左側 accent strip：用 ::before 顯示卡片主色 */
+.component-card::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 4px;
+    background: var(--card-accent, #6366f1);
+    border-radius: 16px 0 0 16px;
+    box-shadow: inset -1px 0 0 rgba(255,255,255,0.4);
+}
+/* hover：往上飄一點 + 強化陰影 */
 .component-card:hover {
     transform: translateY(-2px);
     box-shadow:
-        0 1px 0 rgba(255, 255, 255, 0.95) inset,
-        0 -1px 0 rgba(15, 23, 42, 0.05) inset,
-        0 6px 12px -3px rgba(15, 23, 42, 0.15),
-        0 12px 32px -10px rgba(15, 23, 42, 0.25);
+        0 0 0 1px rgba(15, 23, 42, 0.06),
+        0 2px 4px rgba(15, 23, 42, 0.06),
+        0 8px 18px -4px rgba(15, 23, 42, 0.14),
+        0 24px 40px -12px rgba(15, 23, 42, 0.22);
+}
+/* 主分類卡：更厚重的陰影與略大的 accent strip */
+.component-card[data-role="main"]::before { width: 6px; }
+.component-card[data-role="main"] {
+    box-shadow:
+        0 0 0 1px rgba(15, 23, 42, 0.06),
+        0 2px 4px rgba(15, 23, 42, 0.05),
+        0 6px 16px -4px rgba(15, 23, 42, 0.10),
+        0 18px 40px -10px rgba(15, 23, 42, 0.16);
+}
+[data-theme="dark"] .component-card {
+    border-color: rgba(255, 255, 255, 0.08);
+    box-shadow:
+        0 0 0 1px rgba(255, 255, 255, 0.04),
+        0 1px 2px rgba(0, 0, 0, 0.4),
+        0 4px 12px -4px rgba(0, 0, 0, 0.5),
+        0 12px 28px -10px rgba(0, 0, 0, 0.6);
+}
+[data-theme="dark"] .component-card:hover {
+    box-shadow:
+        0 0 0 1px rgba(255, 255, 255, 0.08),
+        0 2px 4px rgba(0, 0, 0, 0.5),
+        0 8px 18px -4px rgba(0, 0, 0, 0.6),
+        0 24px 40px -12px rgba(0, 0, 0, 0.75);
 }
 .component-card .card-body {
     flex: 1;
     display: flex;
     flex-direction: column;
-    padding: 14px 18px;
-    gap: 4px;
+    padding: 16px 18px 14px 22px;     /* 左 padding 多一些避開 accent strip */
+    gap: 6px;
     overflow: hidden;
-    background: linear-gradient(180deg, rgba(255,255,255,0.6) 0%, transparent 50%);
+    /* 微漸層白：上亮下淡，加強立體感 */
+    background:
+        linear-gradient(180deg, rgba(255,255,255,0.5) 0%, rgba(255,255,255,0) 60%),
+        radial-gradient(circle at 100% 0%, rgba(99,102,241,0.04), transparent 60%);
 }
 [data-theme="dark"] .component-card .card-body {
     background: linear-gradient(180deg, rgba(255,255,255,0.04) 0%, transparent 50%);
@@ -2122,10 +2174,33 @@ body.connector-mode .component:hover {
 /* =============================================
    多選與群組視覺
    ============================================= */
-/* 多選狀態下的元件：每個元件本身仍有 .selected，但加 .multi-selected 區隔 */
+/* 多選（臨時）：藍紫色強調 */
 .component.multi-selected {
-    /* 用稍微淡一點的色調強調是「同伴」而非主要選取 */
-    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.7);
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.75), 0 8px 18px -8px rgba(99, 102, 241, 0.5);
+}
+/* 多選 + 已群組（同 groupId） → 橘色強調，與一般選取明顯區隔 */
+.component.multi-selected.in-formal-group {
+    box-shadow: 0 0 0 3px #f59e0b, 0 10px 24px -10px rgba(245, 158, 11, 0.7);
+    transition: box-shadow 0.15s ease;
+}
+.component.multi-selected.in-formal-group::before {
+    content: '◆';
+    position: absolute;
+    top: -10px;
+    right: -10px;
+    width: 22px;
+    height: 22px;
+    background: #f59e0b;
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 800;
+    box-shadow: 0 2px 6px rgba(245, 158, 11, 0.5);
+    z-index: 5;
+    pointer-events: none;
 }
 /* 同時 .selected + .multi-selected：不顯示 resize handles，但給強框 */
 .component.selected.multi-selected::after {
@@ -2139,15 +2214,19 @@ body.connector-mode .component:hover {
     background: rgba(99, 102, 241, 0.04);
     pointer-events: none;
     z-index: 9990;
-    border-radius: 12px;
+    border-radius: 14px;
     box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.6) inset;
 }
-/* 已正式群組（同 groupId）：實線深色強調 */
+/* 已正式群組（同 groupId）：橘色實線 + 深陰影強調 */
 .group-bbox.formal-group {
     border-style: solid;
+    border-width: 2.5px;
     border-color: #f59e0b;
-    background: rgba(245, 158, 11, 0.06);
-    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.7) inset, 0 4px 12px -4px rgba(245, 158, 11, 0.4);
+    background: rgba(245, 158, 11, 0.07);
+    box-shadow:
+        0 0 0 1px rgba(255, 255, 255, 0.85) inset,
+        0 8px 20px -6px rgba(245, 158, 11, 0.45),
+        0 0 0 4px rgba(245, 158, 11, 0.12);
 }
 [data-theme="dark"] .group-bbox { border-color: #818cf8; background: rgba(129, 140, 248, 0.08); }
-[data-theme="dark"] .group-bbox.formal-group { border-color: #fbbf24; background: rgba(251, 191, 36, 0.08); }
+[data-theme="dark"] .group-bbox.formal-group { border-color: #fbbf24; background: rgba(251, 191, 36, 0.10); }
