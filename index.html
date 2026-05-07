@@ -122,10 +122,11 @@
                     <span class="canvas-stats" id="canvas-stats">類別 0 / 連線 0 / 元件 0</span>
                     <span class="canvas-pan-hint" title="平移畫布的快速鍵">🖐️ 按住 Space + 拖曳 或 滑鼠中鍵 可平移畫布</span>
                     <span class="canvas-zoom" id="canvas-zoom-info">縮放 100%</span>
-                    <button id="btn-zoom-out" class="btn btn-small" title="縮小">−</button>
-                    <button id="btn-zoom-fit" class="btn btn-small" title="符合視窗">符合視窗</button>
+                    <button id="btn-zoom-out" class="btn btn-small" title="縮小 −5%">−</button>
+                    <input type="range" id="canvas-zoom-slider" class="zoom-slider" min="0.1" max="4" step="0.01" value="1" title="縮放控制滑桿（拖曳調整／焦點時可用左右鍵 ±1%）">
+                    <button id="btn-zoom-in" class="btn btn-small" title="放大 +5%">+</button>
+                    <button id="btn-zoom-fit" class="btn btn-small" title="符合視窗寬度（畫布最右側對齊瀏覽器右側）">符合視窗</button>
                     <button id="btn-zoom-100" class="btn btn-small" title="100% 原始大小">100%</button>
-                    <button id="btn-zoom-in" class="btn btn-small" title="放大">+</button>
                 </div>
                 <div class="canvas-wrapper-outer" id="canvas-wrapper-outer">
                     <div class="canvas-wrapper" id="canvas-wrapper">

@@ -576,7 +576,44 @@ body {
     text-overflow: ellipsis;
     padding: 0 8px;
 }
-.canvas-zoom { color: var(--text-muted); margin-right: 8px; min-width: 80px; text-align: right; }
+.canvas-zoom { color: var(--text-muted); margin-right: 4px; min-width: 80px; text-align: right; }
+
+/* 縮放控制滑桿 */
+.zoom-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 140px;
+    height: 4px;
+    border-radius: 999px;
+    background: linear-gradient(to right, var(--primary, #6366f1) 0%, var(--primary, #6366f1) var(--zoom-fill, 22.5%), var(--border, #e5e7eb) var(--zoom-fill, 22.5%), var(--border, #e5e7eb) 100%);
+    outline: none;
+    cursor: pointer;
+    margin: 0 4px;
+    accent-color: var(--primary, #6366f1);
+    transition: filter 0.15s ease;
+}
+.zoom-slider:hover { filter: brightness(1.05); }
+.zoom-slider:focus-visible { box-shadow: 0 0 0 3px rgba(99,102,241,0.25); }
+.zoom-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: var(--primary, #6366f1);
+    border: 2px solid var(--bg-card, #fff);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    cursor: pointer;
+    transition: transform 0.15s ease;
+}
+.zoom-slider::-webkit-slider-thumb:hover { transform: scale(1.15); }
+.zoom-slider::-moz-range-thumb {
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: var(--primary, #6366f1);
+    border: 2px solid var(--bg-card, #fff);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    cursor: pointer;
+}
 
 .canvas-wrapper-outer {
     flex: 1;

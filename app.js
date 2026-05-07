@@ -495,11 +495,15 @@ function setupEventListeners() {
         if (connectorMode) exitConnectorMode(); else enterConnectorMode();
     });
 
-    // 縮放控制
-    document.getElementById('btn-zoom-in').addEventListener('click', () => setViewportZoom(viewportZoom * 1.2));
-    document.getElementById('btn-zoom-out').addEventListener('click', () => setViewportZoom(viewportZoom / 1.2));
+    // 縮放控制（按鈕為 ±5% 等差調整；滑桿可細調）
+    document.getElementById('btn-zoom-in').addEventListener('click', () => stepZoom(+0.05));
+    document.getElementById('btn-zoom-out').addEventListener('click', () => stepZoom(-0.05));
     document.getElementById('btn-zoom-100').addEventListener('click', () => setViewportZoom(1));
     document.getElementById('btn-zoom-fit').addEventListener('click', fitZoom);
+    const zoomSlider = document.getElementById('canvas-zoom-slider');
+    if (zoomSlider) {
+        zoomSlider.addEventListener('input', (e) => setViewportZoom(parseFloat(e.target.value), { fromSlider: true }));
+    }
 
     // 畫布
     const canvas = document.getElementById('canvas');
@@ -823,20 +827,34 @@ function applyViewportZoom() {
         wrapper.style.minHeight = h + 'px';
     }
     document.getElementById('canvas-zoom-info').textContent = `縮放 ${Math.round(viewportZoom * 100)}%`;
+    const slider = document.getElementById('canvas-zoom-slider');
+    if (slider) {
+        if (document.activeElement !== slider) slider.value = String(viewportZoom);
+        const pct = ((viewportZoom - 0.1) / 3.9) * 100;
+        slider.style.setProperty('--zoom-fill', Math.max(0, Math.min(100, pct)) + '%');
+    }
 }
 
-function setViewportZoom(z) {
+function setViewportZoom(z, opts) {
     viewportZoom = Math.max(0.1, Math.min(4, z));
     applyViewportZoom();
+    // 滑桿正在拖曳時不要再回寫，避免抖動（applyViewportZoom 內已判斷 activeElement）
 }
 
+// 等差 ±5% 調整：先把目前縮放對齊到最近的 5% 再加上 delta，避免出現如 73%→88% 跳動
+function stepZoom(delta) {
+    const stepped = Math.round(viewportZoom * 20) / 20 + delta;
+    setViewportZoom(Math.round(stepped * 100) / 100);
+}
+
+// 寬度優先 fit：讓畫布右側恰好對齊到 outer 右邊（保留少量 margin），
+// 若整張畫布的高度也能放進視窗才同時納入高度限制。
 function fitZoom() {
     const outer = document.getElementById('canvas-wrapper-outer');
-    const padding = 80;
-    const availW = outer.clientWidth - padding;
-    const availH = outer.clientHeight - padding;
-    const z = Math.min(availW / projectData.board.w, availH / projectData.board.h);
-    setViewportZoom(Math.max(0.1, Math.min(2, z)));
+    const marginX = 24; // 畫布右側距離捲軸的留白
+    const availW = outer.clientWidth - marginX;
+    const zByWidth = availW / projectData.board.w;
+    setViewportZoom(zByWidth);
 }
 
 function renderCanvas() {
@@ -5084,10 +5102,11 @@ async function exportHTML() {
 <div class="viewer-toolbar-right">
 <button class="btn btn-small" id="vw-view-mode" title="切換顯示模式：完整 ↔ 骨架"><span id="vw-view-mode-icon">${currentViewMode === 'skeleton' ? '👁️' : '🦴'}</span> <span id="vw-view-mode-label">${currentViewMode === 'skeleton' ? '切回完整' : '切到骨架'}</span></button>
 <span style="font-size:12px;color:var(--text-muted);" id="zoom-info">縮放 100%</span>
-<button class="btn btn-small" id="z-out">−</button>
-<button class="btn btn-small" id="z-fit">符合視窗</button>
+<button class="btn btn-small" id="z-out" title="縮小 −5%">−</button>
+<input type="range" id="z-slider" min="0.1" max="4" step="0.01" value="1" title="縮放控制滑桿（拖曳調整／焦點時可用左右鍵 ±1%）" style="vertical-align:middle;cursor:pointer;width:140px;accent-color:#6366f1;">
+<button class="btn btn-small" id="z-in" title="放大 +5%">+</button>
+<button class="btn btn-small" id="z-fit" title="符合視窗寬度">符合視窗</button>
 <button class="btn btn-small" id="z-100">100%</button>
-<button class="btn btn-small" id="z-in">+</button>
 </div></div>
 <button class="filter-toggle-btn" id="filter-toggle-btn" title="標籤篩選 (F)">🔍<span class="badge" id="filter-count-badge" style="display:none;">0</span></button>
 <aside class="filter-panel collapsed" id="filter-panel">
@@ -5148,6 +5167,8 @@ function buildViewerScript() {
             wrap.style.minWidth = wrap.style.width; wrap.style.minHeight = wrap.style.height;
         }
         document.getElementById('zoom-info').textContent = '縮放 ' + Math.round(viewportZoom * 100) + '%';
+        const sl = document.getElementById('z-slider');
+        if (sl && document.activeElement !== sl) sl.value = String(viewportZoom);
     }
     function buildComp(comp){
         const div = document.createElement('div');
@@ -5600,16 +5621,26 @@ function buildViewerScript() {
             if (e.key === 'Escape' && !panel.classList.contains('collapsed')) { panel.classList.add('collapsed'); syncBtn(); }
         });
     }
-    document.getElementById('z-in').addEventListener('click', () => { viewportZoom = Math.min(4, viewportZoom * 1.2); applyZoom(); });
-    document.getElementById('z-out').addEventListener('click', () => { viewportZoom = Math.max(0.1, viewportZoom / 1.2); applyZoom(); });
-    document.getElementById('z-100').addEventListener('click', () => { viewportZoom = 1; applyZoom(); });
-    document.getElementById('z-fit').addEventListener('click', () => {
+    function setZoom(z){ viewportZoom = Math.max(0.1, Math.min(4, z)); applyZoom(); }
+    function stepZoom(delta){
+        const stepped = Math.round(viewportZoom * 20) / 20 + delta;
+        setZoom(Math.round(stepped * 100) / 100);
+    }
+    function fitZoomViewer(){
         const o = document.getElementById('vw-outer');
-        viewportZoom = Math.min((o.clientWidth - 60) / projectData.board.w, (o.clientHeight - 100) / projectData.board.h);
-        applyZoom();
-    });
+        // 寬度優先：畫布右側恰好對齊外框右側（保留少量 margin）
+        const marginX = 32;
+        const z = (o.clientWidth - marginX) / projectData.board.w;
+        setZoom(z);
+    }
+    document.getElementById('z-in').addEventListener('click', () => stepZoom(+0.05));
+    document.getElementById('z-out').addEventListener('click', () => stepZoom(-0.05));
+    document.getElementById('z-100').addEventListener('click', () => setZoom(1));
+    document.getElementById('z-fit').addEventListener('click', fitZoomViewer);
+    const zSlider = document.getElementById('z-slider');
+    if (zSlider) zSlider.addEventListener('input', (e) => setZoom(parseFloat(e.target.value)));
     document.getElementById('vw-outer').addEventListener('wheel', (e) => {
-        if (e.ctrlKey) { e.preventDefault(); viewportZoom = Math.max(0.1, Math.min(4, viewportZoom * (e.deltaY < 0 ? 1.1 : 1/1.1))); applyZoom(); }
+        if (e.ctrlKey) { e.preventDefault(); setZoom(viewportZoom * (e.deltaY < 0 ? 1.1 : 1/1.1)); }
     }, { passive: false });
     // 顯示模式切換（完整 ↔ 骨架）— 採「動作式」按鈕標籤
     function applyViewMode(){
@@ -5627,7 +5658,16 @@ function buildViewerScript() {
     applyBoard(); renderAll();
     setupFilterUI();
     applyViewMode();
-    setTimeout(() => { document.getElementById('z-fit').click(); }, 50);
+    // 預設以「寬度優先」對齊瀏覽器右側
+    setTimeout(fitZoomViewer, 50);
+    // 視窗 resize 時自動重新 fit（除非使用者已自行調整過縮放）
+    let userAdjusted = false;
+    ['z-in','z-out','z-100','z-slider'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('input', () => userAdjusted = true);
+        if (el) el.addEventListener('click', () => userAdjusted = true);
+    });
+    window.addEventListener('resize', () => { if (!userAdjusted) fitZoomViewer(); });
 })();`;
 }
 
