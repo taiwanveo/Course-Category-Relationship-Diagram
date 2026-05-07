@@ -553,6 +553,7 @@ function setupEventListeners() {
     setupClassPopupModal();
     setupClassEditModal();
     setupImportConflictModal();
+    setupShortcutsHelpModal();
 
     // 預設 hover preview 隱藏
     document.getElementById('hover-preview').addEventListener('mouseenter', () => hideHoverPreview());
@@ -4437,6 +4438,24 @@ function openClassPopup(cardId) {
     renderClassPopup();
     renderInspirationSection();
 }
+function setupShortcutsHelpModal() {
+    const overlay = document.getElementById('shortcuts-help-overlay');
+    const open = () => { overlay.style.display = 'flex'; };
+    const close = () => { overlay.style.display = 'none'; };
+    document.getElementById('btn-shortcuts-help').addEventListener('click', open);
+    document.getElementById('btn-shortcuts-help-close').addEventListener('click', close);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    // 按 ? 也可開啟（在輸入框內不觸發）
+    document.addEventListener('keydown', (e) => {
+        const tag = (e.target.tagName || '').toUpperCase();
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
+        if (e.key === '?' || (e.key === '/' && e.shiftKey)) {
+            e.preventDefault();
+            if (overlay.style.display === 'flex') close(); else open();
+        }
+    });
+}
+
 function setupClassPopupModal() {
     document.getElementById('btn-class-popup-close').addEventListener('click', () => document.getElementById('class-popup-overlay').style.display = 'none');
     document.getElementById('class-popup-overlay').addEventListener('click', (e) => { if (e.target.id === 'class-popup-overlay') document.getElementById('class-popup-overlay').style.display = 'none'; });

@@ -470,6 +470,80 @@ body {
 .sidebar-tip ul { list-style: none; }
 .sidebar-tip li { padding: 2px 0; }
 
+/* sidebar header（標題 + 問號按鈕同一行） */
+.sidebar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+.sidebar-header h2 { margin: 0; }
+/* 收合狀態下隱藏 sidebar header（只留標題那塊） */
+.sidebar-left.collapsed .sidebar-header { display: none; }
+
+/* 圓形紅底白問號按鈕 */
+.shortcuts-help-btn {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    border: none;
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+    color: #ffffff;
+    font-weight: 800;
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow:
+        0 2px 4px rgba(220, 38, 38, 0.3),
+        0 1px 2px rgba(0, 0, 0, 0.1),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.15),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.shortcuts-help-btn:hover {
+    transform: scale(1.1);
+    box-shadow:
+        0 4px 8px rgba(220, 38, 38, 0.4),
+        0 2px 4px rgba(0, 0, 0, 0.15),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.15),
+        inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+.shortcuts-help-btn:active { transform: scale(0.95); }
+
+/* 快速鍵說明 popup 內的清單與 kbd */
+.shortcut-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.shortcut-list li {
+    padding: 6px 10px;
+    background: var(--bg-secondary, rgba(15,23,42,0.03));
+    border-radius: 6px;
+    font-size: 13px;
+    line-height: 1.6;
+}
+[data-theme="dark"] .shortcut-list li { background: rgba(255,255,255,0.04); }
+.shortcut-list kbd {
+    display: inline-block;
+    padding: 1px 7px;
+    margin: 0 2px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    font-family: 'SF Mono', 'Monaco', 'Cascadia Code', 'Consolas', monospace;
+    font-size: 12px;
+    color: var(--text-primary);
+    box-shadow: 0 1px 0 rgba(0,0,0,0.05);
+    font-weight: 600;
+}
+
 /* =============================================
    畫布區
    ============================================= */

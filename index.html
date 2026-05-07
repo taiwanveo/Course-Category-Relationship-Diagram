@@ -80,11 +80,14 @@
             <!-- 左側元件工具列 -->
             <aside class="sidebar-left" id="sidebar-left">
                 <button id="btn-toggle-sidebar-left" class="sidebar-toggle" title="收合元件列">◀</button>
-                <h2>元件</h2>
+                <div class="sidebar-header">
+                    <h2>元件</h2>
+                    <button id="btn-shortcuts-help" class="shortcuts-help-btn" title="顯示快速鍵說明" aria-label="快速鍵說明">?</button>
+                </div>
                 <div class="component-list">
                     <button class="component-btn component-btn-primary" data-type="course-category" title="新增課程類別卡（重點元件）">
                         <span class="icon">📚</span>
-                        <span>課程類別</span>
+                        <span>課程類別卡</span>
                     </button>
                     <button class="component-btn component-btn-action component-btn-connector" id="btn-connector-mode" title="進入連線模式：連結兩個元件">
                         <span class="icon">🪢</span>
@@ -110,20 +113,6 @@
                         <span class="icon">🏷️</span>
                         <span>獨立標籤</span>
                     </button>
-                </div>
-                <div class="sidebar-tip">
-                    <strong>快速鍵</strong>
-                    <ul>
-                        <li>右鍵：操作選單</li>
-                        <li>雙擊類別：班名清單</li>
-                        <li>Esc：取消連線/選取</li>
-                        <li>Delete：刪除選取</li>
-                        <li>Ctrl+滾輪：縮放</li>
-                        <li>空白處拖曳：框選多個</li>
-                        <li>Shift+左鍵：累加選取</li>
-                        <li>Ctrl+A：全選元件</li>
-                        <li>Ctrl+G / Ctrl+Shift+G：群組／解除</li>
-                    </ul>
                 </div>
             </aside>
 
@@ -309,6 +298,48 @@
         </div>
 
         <!-- 版型與配色 -->
+        <!-- 快速鍵說明 popup -->
+        <div id="shortcuts-help-overlay" class="modal-overlay" style="display:none;">
+            <div class="modal" style="max-width:520px;">
+                <h2>⌨️ 快速鍵與操作說明</h2>
+                <div class="modal-section">
+                    <h3>滑鼠操作</h3>
+                    <ul class="shortcut-list">
+                        <li><kbd>右鍵</kbd> 點元件或空白處 → 操作選單</li>
+                        <li><kbd>雙擊</kbd> 課程類別卡 → 開啟班名清單</li>
+                        <li><kbd>雙擊</kbd> 文字／色塊 → 直接編輯文字</li>
+                        <li><kbd>空白處左鍵拖曳</kbd> → 框選多個元件</li>
+                        <li><kbd>Shift</kbd> + 左鍵 → 累加選取</li>
+                        <li><kbd>Space</kbd> + 拖曳 或 <kbd>滑鼠中鍵</kbd> + 拖曳 → 平移畫布</li>
+                        <li><kbd>Ctrl</kbd> + 滑鼠滾輪 → 縮放</li>
+                    </ul>
+                </div>
+                <div class="modal-section">
+                    <h3>鍵盤快速鍵</h3>
+                    <ul class="shortcut-list">
+                        <li><kbd>Esc</kbd> → 取消連線模式／取消選取</li>
+                        <li><kbd>Delete</kbd> / <kbd>Backspace</kbd> → 刪除選取</li>
+                        <li><kbd>Ctrl</kbd> + <kbd>A</kbd> → 全選元件</li>
+                        <li><kbd>Ctrl</kbd> + <kbd>D</kbd> → 複製選取</li>
+                        <li><kbd>Ctrl</kbd> + <kbd>C</kbd> / <kbd>V</kbd> → 複製／貼上</li>
+                        <li><kbd>Ctrl</kbd> + <kbd>G</kbd> → 建立群組</li>
+                        <li><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>G</kbd> → 解除群組</li>
+                    </ul>
+                </div>
+                <div class="modal-section">
+                    <h3>群組與多選</h3>
+                    <ul class="shortcut-list">
+                        <li>智慧整理後會自動將每個主分類與其子分類群組化</li>
+                        <li>點擊群組中任一元件 → 整組會以 <span style="color:#f59e0b;font-weight:600;">橘色</span> 高亮</li>
+                        <li>拖曳主分類（不論有無群組）→ 所有下游子分類一起平移</li>
+                    </ul>
+                </div>
+                <div class="modal-actions">
+                    <button id="btn-shortcuts-help-close" class="btn btn-primary">關閉</button>
+                </div>
+            </div>
+        </div>
+
         <div id="theme-palette-overlay" class="modal-overlay" style="display:none;">
             <div class="modal modal-wide">
                 <h2>版型與配色</h2>
