@@ -1,0 +1,39 @@
+# 測試 / 課程內部資料（不公開）
+*.xlsx
+*.xls
+*.csv
+
+# 壓縮檔
+*.7z
+*.zip
+*.rar
+*.tar.gz
+
+# 編輯器設定（個人化）
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS 系統檔
+.DS_Store
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# 暫存與備份
+*.bak
+*.tmp
+*.log
+~$*
+
+# Node（如果未來加上 build 流程）
+node_modules/
+.npm/
+.pnpm-store/
+
+# 本工具產出的測試檔（避免汙染 repo）
+diagram-export-*.html
+課程類別關係圖.html
+*.ccrd
+course-category-env-*.json

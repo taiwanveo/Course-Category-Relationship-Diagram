@@ -1,105 +1,534 @@
 <!DOCTYPE html>
-<html lang="zh-TW">
+<html lang="zh-TW" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>互動教學簡報製作器</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: 'Noto Sans TC', sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-        
-        .container {
-            text-align: center;
-            background: rgba(255, 255, 255, 0.95);
-            padding: 60px 40px;
-            border-radius: 20px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
-            max-width: 600px;
-        }
-        
-        h1 {
-            font-size: 32px;
-            color: #333;
-            margin-bottom: 20px;
-        }
-        
-        p {
-            font-size: 16px;
-            color: #666;
-            margin-bottom: 40px;
-            line-height: 1.6;
-        }
-        
-        .button-group {
-            display: flex;
-            gap: 20px;
-            justify-content: center;
-        }
-        
-        .btn {
-            padding: 15px 30px;
-            font-size: 18px;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            font-family: 'Noto Sans TC', sans-serif;
-            transition: all 0.3s;
-            text-decoration: none;
-            display: inline-block;
-        }
-        
-        .btn-primary {
-            background: #4aa3ff;
-            color: #ffffff;
-        }
-        
-        .btn-primary:hover {
-            background: #3a93ef;
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(74, 163, 255, 0.4);
-        }
-        
-        .btn-secondary {
-            background: #34c759;
-            color: #ffffff;
-        }
-        
-        .btn-secondary:hover {
-            background: #2ab749;
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(52, 199, 89, 0.4);
-        }
-        
-        .btn:disabled {
-            background: #cccccc;
-            cursor: not-allowed;
-            transform: none;
-        }
-    </style>
+    <title>學院 AI 課程分類圖工具</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;500;700;900&family=Klee+One:wght@400;600&family=Zen+Maru+Gothic:wght@400;500;700&family=M+PLUS+Rounded+1c:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="app.css">
 </head>
 <body>
-    <div class="container">
-        <h1>🎓 互動教學簡報製作器</h1>
-        <p>
-            這是一個專為老師設計的工具，可以用拖曳方式建立互動簡報，<br>
-            並匯出成可分享的網頁簡報。
-        </p>
-        <div class="button-group">
-            <a href="editor.html" class="btn btn-primary">進入編輯器</a>
-            <a href="player.html" class="btn btn-secondary">進入播放器</a>
+    <div id="app">
+        <!-- 頂部工具列 -->
+        <header class="toolbar">
+            <div class="toolbar-left">
+                <button id="btn-library" class="btn btn-toolbar btn-title" title="我的分類圖（切換、新增、管理）">
+                    <span class="title-icon">📚</span>
+                    <span class="title-text">
+                        <span id="current-diagram-title">課程類別關係圖</span>
+                        <span id="current-diagram-subject" class="subject-badge"></span>
+                    </span>
+                    <span class="title-caret">▾</span>
+                </button>
+                <div class="toolbar-divider"></div>
+                <button id="btn-board-settings" class="btn btn-toolbar" title="白板尺寸與背景">白板</button>
+                <button id="btn-tag-manager" class="btn btn-toolbar" title="管理五大類標籤">標籤</button>
+                <button id="btn-theme-palette" class="btn btn-toolbar" title="版型與配色">版型/配色</button>
+                <button id="btn-ai-settings" class="btn btn-toolbar btn-ai" title="AI 模型與 API Key 設定">
+                    <span>AI 設定</span>
+                </button>
+                <button id="btn-upload-classify" class="btn btn-toolbar btn-ai-action" title="上傳資料 → AI 自動分類">
+                    <span>📤 AI 分類</span>
+                </button>
+                <button id="btn-version-history" class="btn btn-toolbar" title="版本歷史">版本</button>
+            </div>
+            <div class="toolbar-right">
+                <button id="btn-theme-toggle" class="btn-icon" title="切換 Light / Dark 主題">
+                    <span id="theme-icon">🌙</span>
+                </button>
+                <div class="toolbar-divider"></div>
+                <button id="btn-import" class="btn btn-toolbar" title="匯入分類圖檔或完整環境">匯入</button>
+                <div class="dropdown" id="export-dropdown-wrap">
+                    <button id="btn-export-menu" class="btn btn-toolbar btn-primary" title="匯出">匯出 ▾</button>
+                    <div class="dropdown-menu" id="export-dropdown">
+                        <div class="dropdown-section">本分類圖</div>
+                        <button class="dropdown-item" data-export="ccrd"><span class="icon">📦</span>JSON (.ccrd)</button>
+                        <button class="dropdown-item" data-export="excel"><span class="icon">📊</span>Excel (三層結構)</button>
+                        <button class="dropdown-item" data-export="markdown"><span class="icon">📝</span>Markdown</button>
+                        <button class="dropdown-item" data-export="png"><span class="icon">🖼️</span>PNG</button>
+                        <button class="dropdown-item" data-export="pdf"><span class="icon">📄</span>PDF</button>
+                        <button class="dropdown-item" data-export="html"><span class="icon">🌐</span>HTML (唯讀檢視器)</button>
+                        <div class="dropdown-section">完整環境</div>
+                        <button class="dropdown-item" data-export="env"><span class="icon">🗄️</span>整包 JSON（跨裝置遷移）</button>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- 跨裝置儲存提示條 -->
+        <div id="storage-notice" class="storage-notice">
+            <span>💾 目前資料儲存於本瀏覽器（IndexedDB）。建議定期「匯出」做備份，或匯出整包 JSON 跨裝置遷移。</span>
+            <button class="storage-notice-close" id="storage-notice-close" title="不再顯示">✕</button>
         </div>
+
+        <div class="main-container">
+            <!-- 左側元件工具列 -->
+            <aside class="sidebar-left" id="sidebar-left">
+                <button id="btn-toggle-sidebar-left" class="sidebar-toggle" title="收合元件列">◀</button>
+                <h2>元件</h2>
+                <div class="component-list">
+                    <button class="component-btn component-btn-primary" data-type="course-category" title="新增課程類別卡（重點元件）">
+                        <span class="icon">📚</span>
+                        <span>課程類別</span>
+                    </button>
+                    <button class="component-btn" data-type="text" title="一般文字方塊">
+                        <span class="icon">📝</span>
+                        <span>文字</span>
+                    </button>
+                    <button class="component-btn" data-type="image" title="插入本機圖片">
+                        <span class="icon">🖼️</span>
+                        <span>圖片</span>
+                    </button>
+                    <button class="component-btn" data-type="link" title="可點擊的超連結">
+                        <span class="icon">🔗</span>
+                        <span>連結</span>
+                    </button>
+                    <button class="component-btn" id="btn-add-button" title="X 底白字按鈕">
+                        <span class="icon">🟦</span>
+                        <span>底色按鈕</span>
+                    </button>
+                    <button class="component-btn" id="btn-add-tag" title="獨立標籤元件">
+                        <span class="icon">🏷️</span>
+                        <span>獨立標籤</span>
+                    </button>
+                    <button class="component-btn component-btn-action" id="btn-connector-mode" title="進入連線模式">
+                        <span class="icon">↔️</span>
+                        <span>新增連線</span>
+                    </button>
+                </div>
+                <div class="sidebar-tip">
+                    <strong>快速鍵</strong>
+                    <ul>
+                        <li>右鍵：操作選單</li>
+                        <li>雙擊類別：班名清單</li>
+                        <li>Esc：取消連線/選取</li>
+                        <li>Delete：刪除選取</li>
+                        <li>Ctrl+滾輪：縮放</li>
+                    </ul>
+                </div>
+            </aside>
+
+            <!-- 中間：畫布區 -->
+            <main class="canvas-area">
+                <div class="canvas-controls">
+                    <span class="canvas-stats" id="canvas-stats">類別 0 / 連線 0 / 元件 0</span>
+                    <span class="canvas-pan-hint" title="平移畫布的快速鍵">🖐️ 按住 Space + 拖曳 或 滑鼠中鍵 可平移畫布</span>
+                    <span class="canvas-zoom" id="canvas-zoom-info">縮放 100%</span>
+                    <button id="btn-zoom-out" class="btn btn-small" title="縮小">−</button>
+                    <button id="btn-zoom-fit" class="btn btn-small" title="符合視窗">符合視窗</button>
+                    <button id="btn-zoom-100" class="btn btn-small" title="100% 原始大小">100%</button>
+                    <button id="btn-zoom-in" class="btn btn-small" title="放大">+</button>
+                </div>
+                <div class="canvas-wrapper-outer" id="canvas-wrapper-outer">
+                    <div class="canvas-wrapper" id="canvas-wrapper">
+                        <div id="canvas" class="canvas">
+                            <svg id="connector-layer" class="connector-layer" xmlns="http://www.w3.org/2000/svg">
+                                <defs id="connector-defs"></defs>
+                                <g id="connector-group"></g>
+                                <g id="waypoint-group"></g>
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+                <!-- hover 預覽 -->
+                <div id="hover-preview" class="hover-preview" style="display:none;"></div>
+            </main>
+
+            <!-- 右側屬性面板（彈出式） -->
+            <aside class="sidebar-right" id="sidebar-right">
+                <div class="sidebar-right-header">
+                    <h2>屬性</h2>
+                    <button id="btn-close-property-panel" class="sidebar-close" title="關閉（Esc）">✕</button>
+                </div>
+                <div id="property-panel" class="property-panel">
+                    <p class="placeholder">請選擇元件以編輯屬性</p>
+                </div>
+            </aside>
+        </div>
+
+        <!-- ========== Modals ========== -->
+
+        <!-- 白板設定 -->
+        <div id="board-settings-overlay" class="modal-overlay" style="display:none;">
+            <div class="modal">
+                <h2>白板設定</h2>
+                <div class="modal-field">
+                    <label>白板尺寸（寬 × 高，像素）</label>
+                    <select id="board-size-preset">
+                        <option value="1920x1080">1920 × 1080（FHD）</option>
+                        <option value="2560x1440">2560 × 1440（QHD）</option>
+                        <option value="3200x1800" selected>3200 × 1800（建議）</option>
+                        <option value="3840x2160">3840 × 2160（4K）</option>
+                        <option value="5120x2880">5120 × 2880</option>
+                        <option value="custom">自訂…</option>
+                    </select>
+                    <div class="modal-row" id="board-custom-size-row" style="display:none;">
+                        <input type="number" id="board-w" min="800" step="100" placeholder="寬">
+                        <span>×</span>
+                        <input type="number" id="board-h" min="600" step="100" placeholder="高">
+                    </div>
+                </div>
+                <div class="modal-field">
+                    <label>背景樣式</label>
+                    <select id="board-bg-type">
+                        <option value="plain">全白／純色</option>
+                        <option value="fineGrid">細格線</option>
+                        <option value="coarseGrid">粗格線</option>
+                        <option value="dot">點陣</option>
+                    </select>
+                </div>
+                <div class="modal-field">
+                    <label>底色</label>
+                    <div class="color-input-group">
+                        <input type="color" id="board-base-color" value="#ffffff">
+                        <input type="text" id="board-base-color-text" value="#ffffff">
+                    </div>
+                </div>
+                <div class="modal-field">
+                    <label>格線／點陣顏色</label>
+                    <div class="color-input-group">
+                        <input type="color" id="board-grid-color" value="#e2e8f0">
+                        <input type="text" id="board-grid-color-text" value="#e2e8f0">
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button id="board-settings-save" class="btn btn-primary">套用</button>
+                    <button id="board-settings-cancel" class="btn">取消</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 標籤管理 -->
+        <div id="tag-manager-overlay" class="modal-overlay" style="display:none;">
+            <div class="modal modal-wide">
+                <h2>標籤管理</h2>
+                <p class="modal-desc">五大類標籤可勾選於課程類別卡或班名上。可自訂新增、改名、改色、刪除。</p>
+                <div class="tag-manager-tabs">
+                    <button class="tag-tab active" data-tagcat="audience">A. 對象</button>
+                    <button class="tag-tab" data-tagcat="level">B. 等級</button>
+                    <button class="tag-tab" data-tagcat="attribute">C. 屬性</button>
+                    <button class="tag-tab" data-tagcat="topic">D. 主題</button>
+                    <button class="tag-tab" data-tagcat="format">E. 形式</button>
+                </div>
+                <div class="tag-manager-list" id="tag-manager-list"></div>
+                <div class="tag-manager-add">
+                    <input type="text" id="tag-add-name" placeholder="新增標籤名稱">
+                    <input type="color" id="tag-add-color" value="#3b82f6">
+                    <button id="tag-add-btn" class="btn btn-primary">＋ 新增</button>
+                </div>
+                <div class="modal-actions">
+                    <button id="tag-manager-close" class="btn btn-primary">關閉</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 按鈕色票 -->
+        <div id="button-palette-overlay" class="modal-overlay" style="display:none;">
+            <div class="modal">
+                <h2>選擇按鈕底色</h2>
+                <div class="palette-grid" id="palette-grid"></div>
+                <div class="modal-field">
+                    <label>或自訂顏色</label>
+                    <div class="color-input-group">
+                        <input type="color" id="palette-custom-color" value="#3b82f6">
+                        <input type="text" id="palette-custom-color-text" value="#3b82f6">
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button id="palette-confirm" class="btn btn-primary">確定產生</button>
+                    <button id="palette-cancel" class="btn">取消</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 獨立標籤 picker -->
+        <div id="tag-picker-overlay" class="modal-overlay" style="display:none;">
+            <div class="modal">
+                <h2>選擇要新增的標籤</h2>
+                <div class="tag-picker-grid" id="tag-picker-grid"></div>
+                <div class="modal-actions">
+                    <button id="tag-picker-cancel" class="btn">取消</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 我的分類圖 -->
+        <div id="library-overlay" class="modal-overlay" style="display:none;">
+            <div class="modal modal-xl">
+                <h2>我的分類圖</h2>
+                <p class="modal-desc">所有分類圖都儲存在本機 IndexedDB。請定期「匯出」備份或跨裝置遷移。</p>
+                <div class="library-toolbar">
+                    <button id="btn-library-new" class="btn btn-primary">＋ 新增分類圖</button>
+                    <input type="text" id="library-search" placeholder="🔎 搜尋名稱／學科…" class="library-search">
+                    <span class="library-count" id="library-count">共 0 張</span>
+                </div>
+                <div class="library-list" id="library-list"></div>
+                <div class="modal-actions">
+                    <button id="btn-library-close" class="btn">關閉</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 新增/重命名分類圖 -->
+        <div id="diagram-meta-overlay" class="modal-overlay" style="display:none;">
+            <div class="modal">
+                <h2 id="diagram-meta-title">新增分類圖</h2>
+                <div class="modal-field">
+                    <label>分類圖名稱 <span class="required">*</span></label>
+                    <input type="text" id="diagram-meta-name" placeholder="例如：人工智慧課程分類圖（2026 版）">
+                </div>
+                <div class="modal-field">
+                    <label>學科名稱</label>
+                    <input type="text" id="diagram-meta-subject" placeholder="例如：人工智慧 (AI)" value="人工智慧 (AI)">
+                    <small>用於告訴 AI 我們在分類什麼，未來可推廣到其他學科</small>
+                </div>
+                <div class="modal-actions">
+                    <button id="diagram-meta-save" class="btn btn-primary">儲存</button>
+                    <button id="diagram-meta-cancel" class="btn">取消</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 版型與配色 -->
+        <div id="theme-palette-overlay" class="modal-overlay" style="display:none;">
+            <div class="modal modal-wide">
+                <h2>版型與配色</h2>
+                <div class="modal-section">
+                    <h3>主題模式</h3>
+                    <div class="theme-toggle-row">
+                        <button class="mode-btn" data-mode="light">☀️ Light</button>
+                        <button class="mode-btn" data-mode="dark">🌙 Dark</button>
+                    </div>
+                </div>
+                <div class="modal-section">
+                    <h3>配色方案</h3>
+                    <div class="palette-options" id="palette-options"></div>
+                </div>
+                <div class="modal-section">
+                    <h3>分類圖版型</h3>
+                    <p class="modal-desc">套用後會自動重新排列課程類別卡，但保留所有連線關係。</p>
+                    <div class="layout-options" id="layout-options"></div>
+                    <div class="modal-actions" style="margin-top:8px;">
+                        <button id="btn-apply-layout" class="btn btn-primary">套用版型佈局</button>
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button id="btn-theme-palette-close" class="btn">關閉</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- AI 設定 -->
+        <div id="ai-settings-overlay" class="modal-overlay" style="display:none;">
+            <div class="modal modal-wide">
+                <h2>AI 設定</h2>
+                <p class="modal-desc">API Key 以 Web Crypto（AES-GCM + PBKDF2）加密後儲存於 IndexedDB，僅留存於本瀏覽器。沒有主密碼即無法解密。</p>
+                <div class="ai-providers" id="ai-providers"></div>
+                <div class="modal-section">
+                    <h3>主密碼</h3>
+                    <div class="modal-field">
+                        <button id="btn-set-master-password" class="btn">設定 / 變更主密碼</button>
+                        <button id="btn-clear-master-password" class="btn btn-danger">清除主密碼與所有 API Keys</button>
+                    </div>
+                    <small>主密碼僅在記憶體中存在於目前 session。重新整理後需重新輸入才能讀取 API Keys。</small>
+                </div>
+                <div class="modal-actions">
+                    <button id="btn-ai-settings-close" class="btn">關閉</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 主密碼 prompt -->
+        <div id="master-password-overlay" class="modal-overlay" style="display:none;">
+            <div class="modal">
+                <h2 id="master-password-title">主密碼</h2>
+                <p class="modal-desc" id="master-password-desc">請輸入主密碼以解密 API Keys。</p>
+                <div class="modal-field">
+                    <label>主密碼</label>
+                    <input type="password" id="master-password-input" placeholder="輸入主密碼">
+                </div>
+                <div class="modal-field" id="master-password-confirm-row" style="display:none;">
+                    <label>再次輸入</label>
+                    <input type="password" id="master-password-confirm" placeholder="再輸入一次">
+                </div>
+                <div class="modal-actions">
+                    <button id="master-password-ok" class="btn btn-primary">確認</button>
+                    <button id="master-password-cancel" class="btn">取消</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 上傳資料 → AI 分類 -->
+        <div id="upload-overlay" class="modal-overlay" style="display:none;">
+            <div class="modal modal-xl">
+                <h2>上傳資料 → AI 自動分類</h2>
+                <div class="upload-stepper">
+                    <div class="step active" data-step="1"><span>1</span> 選檔與剖析</div>
+                    <div class="step" data-step="2"><span>2</span> 確認資料</div>
+                    <div class="step" data-step="3"><span>3</span> 學科與提示</div>
+                    <div class="step" data-step="4"><span>4</span> AI 分類</div>
+                </div>
+                <div class="upload-step-body">
+                    <!-- Step 1 -->
+                    <div class="upload-step-pane" data-step="1">
+                        <p class="modal-desc">支援 CSV、Excel（.xlsx, .xls）、TXT、Markdown。系統會自動剖析每一列為一個「班名」。</p>
+                        <div class="upload-dropzone" id="upload-dropzone">
+                            <div class="upload-dropzone-icon">📤</div>
+                            <div class="upload-dropzone-text">拖曳檔案到此處<br>或點擊選擇檔案</div>
+                            <input type="file" id="upload-file-input" accept=".csv,.xlsx,.xls,.txt,.md" style="display:none;">
+                        </div>
+                        <div id="upload-file-info" class="upload-file-info" style="display:none;"></div>
+                    </div>
+                    <!-- Step 2 -->
+                    <div class="upload-step-pane" data-step="2" style="display:none;">
+                        <p class="modal-desc">請選擇要送給 AI 分類的<b>班名 / 課程名稱</b>欄位（不是班代號或編號）。系統已嘗試自動推測；若不對請手動點選。空列、重複項目會自動去除。</p>
+                        <div id="upload-col-picker" class="upload-col-picker"></div>
+                        <div class="upload-preview" id="upload-preview"></div>
+                    </div>
+                    <!-- Step 3 -->
+                    <div class="upload-step-pane" data-step="3" style="display:none;">
+                        <div class="modal-field">
+                            <label>學科名稱</label>
+                            <input type="text" id="upload-subject" placeholder="例如：人工智慧 (AI)">
+                            <small>讓 AI 知道我們在分類什麼領域的課程</small>
+                        </div>
+                        <div class="modal-field">
+                            <label>選用提示詞（選填）</label>
+                            <textarea id="upload-prompt" rows="3" placeholder="例如：請以「對象」、「等級」、「主題」、「形式」、「屬性」這五個面向設計子分類，並對每個班名建議標籤。請優先以實作型、生成式 AI、工作坊類為主軸。"></textarea>
+                            <small>留空則使用內建預設提示詞。</small>
+                        </div>
+                        <div class="modal-field">
+                            <label>AI 供應商與模型 <span style="color:var(--text-muted);font-size:11px;">（即時抓取最新清單）</span></label>
+                            <div class="ai-provider-key-row">
+                                <select id="upload-provider" style="flex:1;"></select>
+                                <select id="upload-model" style="flex:2;"></select>
+                                <button id="upload-refresh-models" class="btn btn-small" title="從 API 抓取最新模型清單">🔄</button>
+                            </div>
+                            <small id="upload-model-meta" style="color:var(--text-muted);"></small>
+                        </div>
+                    </div>
+                    <!-- Step 4 -->
+                    <div class="upload-step-pane" data-step="4" style="display:none;">
+                        <div id="upload-progress" class="upload-progress">準備中…</div>
+                        <div id="upload-progress-meta" style="display:none;font-size:12px;color:var(--text-muted);margin:4px 0 8px;">
+                            <span id="upload-elapsed">已用 0 秒</span>
+                            <button id="upload-abort" class="btn btn-small" style="margin-left:8px;">取消呼叫</button>
+                            <div id="upload-slow-tip" style="margin-top:6px;display:none;color:var(--warning,#f59e0b);">
+                                💡 提示：已超過 30 秒。若使用 <b>gemini-2.5-flash</b> 或 <b>2.5-pro</b>（Thinking 模型），首次呼叫常需 60 秒以上。建議改用 <b>gemini-2.0-flash</b> 或 <b>gemini-1.5-flash</b> 速度更快。
+                            </div>
+                        </div>
+                        <pre id="upload-result" class="upload-result"></pre>
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button id="upload-prev" class="btn">上一步</button>
+                    <button id="upload-next" class="btn btn-primary">下一步</button>
+                    <button id="upload-cancel" class="btn">取消</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 版本歷史 -->
+        <div id="version-overlay" class="modal-overlay" style="display:none;">
+            <div class="modal modal-wide">
+                <h2>版本歷史</h2>
+                <div class="version-toolbar">
+                    <button id="btn-snapshot-now" class="btn btn-primary">＋ 建立命名版本</button>
+                    <span class="version-count" id="version-count">共 0 筆</span>
+                </div>
+                <div class="version-list" id="version-list"></div>
+                <div class="modal-actions">
+                    <button id="btn-version-close" class="btn">關閉</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 班名 popup -->
+        <div id="class-popup-overlay" class="modal-overlay" style="display:none;">
+            <div class="modal modal-xl class-popup">
+                <h2 id="class-popup-title">班名清單</h2>
+                <div class="class-popup-toolbar">
+                    <input type="text" id="class-popup-search" placeholder="🔎 搜尋班名" class="library-search">
+                    <button id="btn-add-class" class="btn btn-primary">＋ 新增班名</button>
+                    <span id="class-popup-count" class="library-count">共 0 個</span>
+                </div>
+                <div class="class-popup-virtual" id="class-popup-virtual">
+                    <div class="class-popup-spacer" id="class-popup-spacer"></div>
+                    <div class="class-popup-items" id="class-popup-items"></div>
+                </div>
+                <div class="modal-actions">
+                    <button id="btn-class-popup-close" class="btn">關閉</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 班名編輯 -->
+        <div id="class-edit-overlay" class="modal-overlay" style="display:none;">
+            <div class="modal modal-wide">
+                <h2 id="class-edit-title">編輯班名</h2>
+                <div class="modal-field">
+                    <label>班名</label>
+                    <input type="text" id="class-edit-name">
+                </div>
+                <div class="modal-field">
+                    <label>歸屬類別卡片 <span style="color:var(--text-muted);font-size:11px;">（更換可重新分配到其他主分類 / 子分類）</span></label>
+                    <select id="class-edit-card"></select>
+                </div>
+                <div class="modal-field">
+                    <label>備註（選填）</label>
+                    <textarea id="class-edit-note" rows="2"></textarea>
+                </div>
+                <div class="modal-section">
+                    <h3>標籤</h3>
+                    <div id="class-edit-tags"></div>
+                </div>
+                <div class="modal-actions">
+                    <button id="btn-class-edit-save" class="btn btn-primary">儲存</button>
+                    <button id="btn-class-edit-cancel" class="btn">取消</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 匯入衝突 -->
+        <div id="import-conflict-overlay" class="modal-overlay" style="display:none;">
+            <div class="modal">
+                <h2>匯入衝突</h2>
+                <p class="modal-desc" id="import-conflict-desc">本地已有相同 ID 的分類圖。</p>
+                <div class="modal-actions">
+                    <button id="btn-conflict-overwrite" class="btn btn-danger">覆蓋本地</button>
+                    <button id="btn-conflict-asnew" class="btn btn-primary">另存新檔</button>
+                    <button id="btn-conflict-cancel" class="btn">取消</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Toast 容器 -->
+        <div id="toast-container" class="toast-container"></div>
+
+        <!-- 連線模式提示條 -->
+        <div id="connector-hint" class="connector-hint" style="display:none;">
+            連線模式：請點選第一個元件作為起點（按 Esc 取消）
+        </div>
+
+        <!-- 自訂右鍵選單 -->
+        <div id="context-menu" class="context-menu" style="display:none;"></div>
+
+        <!-- 隱藏檔案輸入 -->
+        <input type="file" id="file-import" accept=".ccrd,.zip,.json" style="display:none;">
+        <input type="file" id="file-image" accept="image/*" style="display:none;">
     </div>
+
+    <!-- 第三方函式庫 -->
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dexie@4.0.10/dist/dexie.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+    <script src="storage.js"></script>
+    <script src="ai.js"></script>
+    <script src="app.js"></script>
 </body>
 </html>
