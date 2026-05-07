@@ -129,6 +129,7 @@ document.addEventListener('DOMContentLoaded', () => {
 async function boot() {
     applyTheme(AppStorage.Settings.getTheme());
     applyPalette(AppStorage.Settings.getPalette());
+    applyViewMode(AppStorage.Settings.getViewMode(), { silent: true });
 
     // 嘗試遷移 v1 草稿
     await AppStorage.tryMigrateV1Draft();
@@ -193,6 +194,37 @@ function applyTheme(mode) {
 function applyPalette(paletteId) {
     document.documentElement.dataset.palette = paletteId || 'aurora';
     AppStorage.Settings.setPalette(paletteId || 'aurora');
+}
+
+// ============================================================
+// 顯示模式（完整 ↔ 骨架）
+//   full     - 顯示班名數量徽章、班名 hover 預覽、卡片班名行
+//   skeleton - 全部隱藏，純展示分類骨架
+// ============================================================
+function applyViewMode(mode, opts) {
+    opts = opts || {};
+    const m = (mode === 'skeleton') ? 'skeleton' : 'full';
+    document.documentElement.dataset.viewMode = m;
+    AppStorage.Settings.setViewMode(m);
+    const iconEl = document.getElementById('view-mode-icon');
+    const labelEl = document.getElementById('view-mode-label');
+    const btnEl = document.getElementById('btn-view-mode');
+    if (iconEl) iconEl.textContent = (m === 'skeleton') ? '🦴' : '👁️';
+    if (labelEl) labelEl.textContent = (m === 'skeleton') ? '骨架' : '完整';
+    if (btnEl) {
+        btnEl.classList.toggle('view-mode-skeleton', m === 'skeleton');
+        btnEl.title = (m === 'skeleton')
+            ? '當前：骨架模式（班名與標籤已隱藏）。點擊切回完整模式。'
+            : '當前：完整模式。點擊切到骨架模式（暫時隱藏班名與標籤）';
+    }
+    if (typeof renderCanvas === 'function') renderCanvas();
+    if (!opts.silent) {
+        toast(m === 'skeleton' ? '已切換為骨架模式（班名暫時隱藏）' : '已切換為完整模式', 'info');
+    }
+}
+function toggleViewMode() {
+    const cur = AppStorage.Settings.getViewMode();
+    applyViewMode(cur === 'skeleton' ? 'full' : 'skeleton');
 }
 
 // ============================================================
@@ -303,6 +335,8 @@ function ensureDiagramIntegrity() {
     if (!Array.isArray(projectData.components)) projectData.components = [];
     if (!Array.isArray(projectData.connectors)) projectData.connectors = [];
     if (!projectData.assets) projectData.assets = {};
+    // 「靈感班名」清單：場景 B 上傳但不放入圖中的班名暫存區
+    if (!Array.isArray(projectData.inspirationClasses)) projectData.inspirationClasses = [];
     // 升級 v1 卡片：補 attribute、classes
     projectData.components.forEach(c => {
         if (c.type === 'course-category') {
@@ -347,7 +381,24 @@ function setupEventListeners() {
     document.getElementById('btn-tag-manager').addEventListener('click', openTagManager);
     document.getElementById('btn-theme-palette').addEventListener('click', openThemePalette);
     document.getElementById('btn-ai-settings').addEventListener('click', openAISettings);
-    document.getElementById('btn-upload-classify').addEventListener('click', openUploadWizard);
+    // AI 建構下拉選單（三模式）
+    const aiWrap = document.getElementById('ai-action-dropdown-wrap');
+    const aiBtn = document.getElementById('btn-upload-classify');
+    aiBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        aiWrap.classList.toggle('open');
+    });
+    document.querySelectorAll('#ai-action-dropdown .dropdown-item').forEach(b => {
+        b.addEventListener('click', (e) => {
+            e.stopPropagation();
+            aiWrap.classList.remove('open');
+            openUploadWizard(b.dataset.aimode);
+        });
+    });
+    document.addEventListener('click', () => aiWrap.classList.remove('open'));
+
+    // 顯示模式切換（完整 ↔ 骨架）
+    document.getElementById('btn-view-mode').addEventListener('click', toggleViewMode);
     document.getElementById('btn-version-history').addEventListener('click', openVersionHistory);
     document.getElementById('btn-theme-toggle').addEventListener('click', () => {
         const cur = AppStorage.Settings.getTheme();
@@ -922,34 +973,39 @@ function renderCategoryCard(div, comp) {
     body.appendChild(title); body.appendChild(sub);
 
     const classes = comp.props.classes || [];
-    const classCount = document.createElement('div');
-    classCount.className = 'card-classes-count';
-    if (classes.length > 0) {
-        classCount.innerHTML = `<span>📋 班名：</span><span class="count-badge">${classes.length}</span><span style="opacity:0.7;">（雙擊查看）</span>`;
-    } else {
-        classCount.innerHTML = `<span style="opacity:0.5;">尚無班名（雙擊新增）</span>`;
+    const isSkeleton = AppStorage.Settings.getViewMode() === 'skeleton';
+    if (!isSkeleton) {
+        const classCount = document.createElement('div');
+        classCount.className = 'card-classes-count';
+        if (classes.length > 0) {
+            classCount.innerHTML = `<span>📋 班名：</span><span class="count-badge">${classes.length}</span><span style="opacity:0.7;">（雙擊查看）</span>`;
+        } else {
+            classCount.innerHTML = `<span style="opacity:0.5;">尚無班名（雙擊新增）</span>`;
+        }
+        body.appendChild(classCount);
     }
-    body.appendChild(classCount);
     div.appendChild(body);
 
-    // 標籤群（卡片層級的 assignedTags 仍然顯示）
-    const tagsWrap = document.createElement('div');
-    tagsWrap.className = 'card-tags';
-    const at = comp.props.assignedTags || {};
-    let total = 0;
-    TAG_CATEGORY_KEYS.forEach(cat => {
-        (at[cat] || []).forEach(tagId => {
-            const tag = findTagById(cat, tagId); if (!tag) return;
-            const chip = document.createElement('span');
-            chip.className = 'card-tag';
-            chip.style.background = tag.color;
-            chip.textContent = tag.name;
-            chip.title = TAG_CATEGORY_LABELS[cat] + '：' + tag.name;
-            tagsWrap.appendChild(chip);
-            total++;
+    // 標籤群（卡片層級的 assignedTags）— 骨架模式時不顯示
+    if (!isSkeleton) {
+        const tagsWrap = document.createElement('div');
+        tagsWrap.className = 'card-tags';
+        const at = comp.props.assignedTags || {};
+        let total = 0;
+        TAG_CATEGORY_KEYS.forEach(cat => {
+            (at[cat] || []).forEach(tagId => {
+                const tag = findTagById(cat, tagId); if (!tag) return;
+                const chip = document.createElement('span');
+                chip.className = 'card-tag';
+                chip.style.background = tag.color;
+                chip.textContent = tag.name;
+                chip.title = TAG_CATEGORY_LABELS[cat] + '：' + tag.name;
+                tagsWrap.appendChild(chip);
+                total++;
+            });
         });
-    });
-    if (total > 0) div.appendChild(tagsWrap);
+        if (total > 0) div.appendChild(tagsWrap);
+    }
 
     // hover 預覽
     div.addEventListener('mouseenter', (e) => showCardHoverPreview(comp, e));
@@ -1959,15 +2015,15 @@ function handleConnectorClick(componentId) {
 let hoverHideTimer = null;
 function showCardHoverPreview(comp, e) {
     if (comp.type !== 'course-category') return;
+    // 骨架模式：完全不顯示 hover 預覽（含標籤、班名）
+    if (AppStorage.Settings.getViewMode() === 'skeleton') return;
     if (hoverHideTimer) { clearTimeout(hoverHideTimer); hoverHideTimer = null; }
     const wrap = document.getElementById('hover-preview');
     const aggregate = aggregateCardTags(comp);
     let html = `<div class="hover-preview-title">${escapeHtml(comp.props.title || '未命名')}</div>`;
-    let any = false;
     TAG_CATEGORY_KEYS.forEach(cat => {
         const ids = aggregate[cat];
         if (!ids || ids.length === 0) return;
-        any = true;
         html += `<div class="hover-preview-section">${TAG_CATEGORY_LABELS[cat]}</div><div class="hover-preview-tags">`;
         ids.forEach(id => {
             const tag = findTagById(cat, id); if (!tag) return;
@@ -2947,12 +3003,64 @@ function promptMasterPassword(opts) {
 
 // ============================================================
 // 上傳資料 → AI 分類 精靈
+// 支援三種 mode：
+//   'classify'         - 完整 AI 分類（上傳班名 → 分類並貼標籤 → 班名放入卡片）
+//   'scaffold-empty'   - 從零建構骨架（無資料，AI 憑空設計）
+//   'scaffold-inspired'- 以班名為靈感建構骨架（上傳班名作參考但不放入圖中）
 // ============================================================
-function openUploadWizard() {
-    uploadState = { step: 1, file: null, raw: null, parsed: null, columns: null, selectedColumn: 0, classNames: [], subject: projectData.subject, prompt: '', provider: 'mock', model: '' };
+const UPLOAD_MODE_META = {
+    'classify': {
+        title: '上傳資料 → AI 自動分類',
+        desc: '上傳班名清單，AI 自動歸類成「主分類 → 子分類 → 班名」並建議標籤。班名會直接放入課程類別卡。',
+        steps: [1, 2, 3, 4],
+        needsFile: true,
+        showScaffoldOptions: false
+    },
+    'scaffold-empty': {
+        title: '🏗️ 從零建構骨架',
+        desc: '不需要上傳任何資料。AI 會根據學科主題與標籤庫，憑空設計「主分類 → 子分類」兩層骨架。不會產生班名。',
+        steps: [3, 4],
+        needsFile: false,
+        showScaffoldOptions: true
+    },
+    'scaffold-inspired': {
+        title: '💡 以班名為靈感建構骨架',
+        desc: '上傳班名清單供 AI 參考，但**不**會把班名放進圖裡。AI 會依這些班名歸納出「主分類 → 子分類」骨架。班名會存在「靈感清單」中供之後查看。',
+        steps: [1, 2, 3, 4],
+        needsFile: true,
+        showScaffoldOptions: true
+    }
+};
+function openUploadWizard(mode) {
+    mode = mode || 'classify';
+    if (!UPLOAD_MODE_META[mode]) mode = 'classify';
+    uploadState = {
+        mode,
+        step: UPLOAD_MODE_META[mode].steps[0],
+        file: null, raw: null, parsed: null, columns: null,
+        selectedColumn: 0, classNames: [],
+        subject: projectData.subject, prompt: '',
+        provider: 'mock', model: '',
+        targetMainCount: 0, targetSubCount: 0, attachTags: true
+    };
+    // UI 上的標題與描述
+    document.getElementById('upload-title').textContent = UPLOAD_MODE_META[mode].title;
+    document.getElementById('upload-mode-desc').textContent = UPLOAD_MODE_META[mode].desc;
+    // 動態調整 stepper 顯示（隱藏不需要的步驟）
+    document.querySelectorAll('.upload-stepper .step').forEach(s => {
+        const stepNum = parseInt(s.dataset.step, 10);
+        s.style.display = UPLOAD_MODE_META[mode].steps.includes(stepNum) ? '' : 'none';
+    });
+    // 顯示／隱藏 scaffold 選項區
+    document.getElementById('upload-scaffold-options').style.display = UPLOAD_MODE_META[mode].showScaffoldOptions ? '' : 'none';
+
     document.getElementById('upload-overlay').style.display = 'flex';
-    showUploadStep(1);
+    showUploadStep(uploadState.step);
     populateUploadProviderSelect();
+    // scaffold-empty 進來就直接到 step 3，須先預填學科
+    if (mode === 'scaffold-empty') {
+        document.getElementById('upload-subject').value = projectData.subject || '';
+    }
 }
 function setupUploadModal() {
     const overlay = document.getElementById('upload-overlay');
@@ -2976,29 +3084,50 @@ function showUploadStep(n) {
     uploadState.step = n;
     document.querySelectorAll('.upload-stepper .step').forEach(s => s.classList.toggle('active', parseInt(s.dataset.step, 10) === n));
     document.querySelectorAll('.upload-step-pane').forEach(p => p.style.display = (parseInt(p.dataset.step, 10) === n) ? 'block' : 'none');
-    document.getElementById('upload-prev').style.visibility = (n > 1) ? 'visible' : 'hidden';
-    document.getElementById('upload-next').textContent = (n === 4) ? '完成' : (n === 3) ? '開始 AI 分類' : '下一步';
+    const steps = (UPLOAD_MODE_META[uploadState.mode] || UPLOAD_MODE_META.classify).steps;
+    const isFirst = n === steps[0];
+    const isLast = n === steps[steps.length - 1];
+    const isPreLast = n === steps[steps.length - 2]; // 通常是 step 3（送出 AI 前最後一步）
+    document.getElementById('upload-prev').style.visibility = isFirst ? 'hidden' : 'visible';
+    const nextBtn = document.getElementById('upload-next');
+    nextBtn.textContent = isLast ? '完成' : isPreLast ? (uploadState.mode === 'classify' ? '開始 AI 分類' : '開始 AI 建構') : '下一步';
 }
 function uploadGoStep(n) {
     if (!uploadState) return;
-    if (n < 1) return;
-    if (uploadState.step === 1 && n === 2) {
-        if (!uploadState.classNames.length) { toast('請先選擇檔案', 'warning'); return; }
-        renderUploadStep2();
-    }
-    if (uploadState.step === 2 && n === 3) {
-        renderUploadStep3();
-    }
-    if (uploadState.step === 3 && n === 4) {
-        startAIClassify();
-        showUploadStep(4);
-        return;
-    }
-    if (n > 4) {
+    const steps = (UPLOAD_MODE_META[uploadState.mode] || UPLOAD_MODE_META.classify).steps;
+    const idx = steps.indexOf(uploadState.step);
+    if (idx < 0) return;
+    // 「上一步 / 下一步」實際是在 steps 陣列中前後移
+    let targetIdx;
+    if (n < uploadState.step) targetIdx = idx - 1;
+    else if (n > uploadState.step) targetIdx = idx + 1;
+    else targetIdx = idx;
+    if (targetIdx < 0) return;
+    // 超出最後一步 → 關閉視窗
+    if (targetIdx >= steps.length) {
         document.getElementById('upload-overlay').style.display = 'none';
         return;
     }
-    showUploadStep(n);
+    const targetStep = steps[targetIdx];
+    // 進入 step 2/3/4 前的驗證與資料準備
+    if (uploadState.step === 1 && targetStep === 2) {
+        if (!uploadState.classNames.length) { toast('請先選擇檔案', 'warning'); return; }
+        renderUploadStep2();
+    }
+    if (targetStep === 3) {
+        renderUploadStep3();
+    }
+    if (targetStep === 4) {
+        // scaffold-empty 也需要先驗學科
+        if (uploadState.mode === 'scaffold-empty') {
+            const subj = (document.getElementById('upload-subject').value || '').trim();
+            if (!subj) { toast('請先填學科名稱', 'warning'); return; }
+        }
+        showUploadStep(4);
+        startAIClassify();
+        return;
+    }
+    showUploadStep(targetStep);
 }
 async function handleUploadFile(file) {
     uploadState.file = file;
@@ -3341,16 +3470,36 @@ async function startAIClassify() {
     if (abortBtn) abortBtn.addEventListener('click', onAbortClick, { once: true });
 
     try {
+        const mode = (uploadState && uploadState.mode) || 'classify';
         progress.textContent = `呼叫 ${providerId}（${model}）中…請稍候`;
-        const r = await AppAI.classifyClasses(
-            uploadState.classNames, subject, userPrompt, providerId, model,
-            projectData.tagLibrary, { signal: controller.signal }
-        );
-        progress.textContent = r.fromCache ? '✅ 快取命中（未消耗 API 額度）' : '✅ 分類完成';
+        // 讀取 scaffold 控制（即使 classify 模式也讀，無傷）
+        const targetMain = parseInt(document.getElementById('upload-target-main').value, 10) || 0;
+        const targetSub = parseInt(document.getElementById('upload-target-sub').value, 10) || 0;
+        const attachTags = !!document.getElementById('upload-attach-tags').checked;
+
+        let r;
+        if (mode === 'classify') {
+            r = await AppAI.classifyClasses(
+                uploadState.classNames, subject, userPrompt, providerId, model,
+                projectData.tagLibrary, { signal: controller.signal }
+            );
+        } else {
+            // scaffold-empty 或 scaffold-inspired
+            const inspirationNames = mode === 'scaffold-inspired' ? uploadState.classNames : [];
+            r = await AppAI.buildScaffold(
+                subject, userPrompt, providerId, model, projectData.tagLibrary,
+                {
+                    signal: controller.signal,
+                    targetMainCount: targetMain, targetSubCount: targetSub,
+                    attachTags, inspirationNames
+                }
+            );
+        }
+        progress.textContent = r.fromCache ? '✅ 快取命中（未消耗 API 額度）' : (mode === 'classify' ? '✅ 分類完成' : '✅ 骨架建構完成');
         result.textContent = JSON.stringify(r.parsed, null, 2);
-        snapshot('auto', '套用 AI 分類前自動備份');
-        applyClassificationResult(r.parsed, subject);
-        toast('AI 分類完成並已套用', 'success');
+        snapshot('auto', mode === 'classify' ? '套用 AI 分類前自動備份' : '套用 AI 骨架前自動備份');
+        applyClassificationResult(r.parsed, subject, { mode, attachTags });
+        toast(mode === 'classify' ? 'AI 分類完成並已套用' : 'AI 骨架建構完成並已套用', 'success');
     } catch (err) {
         console.error(err);
         progress.textContent = '❌ 失敗';
@@ -3363,8 +3512,11 @@ async function startAIClassify() {
         if (abortBtn) abortBtn.style.display = 'none';
     }
 }
-function applyClassificationResult(parsed, subject) {
+function applyClassificationResult(parsed, subject, opts) {
     if (!parsed || !Array.isArray(parsed.categories)) return;
+    opts = opts || {};
+    const mode = opts.mode || 'classify';
+    const isScaffold = mode === 'scaffold-empty' || mode === 'scaffold-inspired';
     if (subject) projectData.subject = subject;
     // 清空既有 cards/connectors（保留其他元件）
     const others = projectData.components.filter(c => c.type !== 'course-category');
@@ -3372,6 +3524,10 @@ function applyClassificationResult(parsed, subject) {
     projectData.connectors = projectData.connectors.filter(c =>
         !others.find(o => o.id === c.fromComponentId) && !others.find(o => o.id === c.toComponentId)
     );
+    // scaffold-inspired：把上傳的班名存到 inspirationClasses（不放入卡片）
+    if (mode === 'scaffold-inspired' && uploadState && Array.isArray(uploadState.classNames)) {
+        projectData.inspirationClasses = uploadState.classNames.slice();
+    }
     // 建立卡片：每個 category + 每個 subcategory 各一張卡
     const colW = 360, rowH = 200;
     parsed.categories.forEach((cat, ci) => {
@@ -3391,15 +3547,25 @@ function applyClassificationResult(parsed, subject) {
             subCard.x = 100 + colW + si * (colW * 0.8);
             subCard.y = 100 + ci * rowH * 2 + si * 30;
             subCard.zIndex = nextTopZIndex();
-            // 將班名加入子卡
-            (sub.classes || []).forEach(cls => {
-                subCard.props.classes.push({
-                    id: 'cls' + (classIdCounter++),
-                    name: cls.name,
-                    note: '',
-                    tags: cls.tags || { audience: [], level: [], attribute: [], topic: [], format: [] }
+            // scaffold 模式：把 sub.tags（若 AI 有附）寫到子卡的 assignedTags 上
+            if (isScaffold && sub.tags && typeof sub.tags === 'object') {
+                TAG_CATEGORY_KEYS.forEach(cat => {
+                    if (Array.isArray(sub.tags[cat])) {
+                        subCard.props.assignedTags[cat] = sub.tags[cat].slice();
+                    }
                 });
-            });
+            }
+            // classify 模式：把 sub.classes 班名加入子卡（scaffold 模式跳過）
+            if (!isScaffold) {
+                (sub.classes || []).forEach(cls => {
+                    subCard.props.classes.push({
+                        id: 'cls' + (classIdCounter++),
+                        name: cls.name,
+                        note: '',
+                        tags: cls.tags || { audience: [], level: [], attribute: [], topic: [], format: [] }
+                    });
+                });
+            }
             projectData.components.push(subCard);
             // 建連線（主→子）
             projectData.connectors.push({
@@ -3429,6 +3595,7 @@ function openClassPopup(cardId) {
     document.getElementById('class-popup-search').value = '';
     document.getElementById('class-popup-overlay').style.display = 'flex';
     renderClassPopup();
+    renderInspirationSection();
 }
 function setupClassPopupModal() {
     document.getElementById('btn-class-popup-close').addEventListener('click', () => document.getElementById('class-popup-overlay').style.display = 'none');
@@ -3442,6 +3609,48 @@ function setupClassPopupModal() {
     });
     document.getElementById('class-popup-search').addEventListener('input', renderClassPopup);
     document.getElementById('class-popup-virtual').addEventListener('scroll', virtualScrollUpdate);
+    // 靈感班名：清空、複製
+    document.getElementById('btn-inspiration-clear').addEventListener('click', () => {
+        if (!projectData.inspirationClasses || !projectData.inspirationClasses.length) return;
+        if (!confirm(`確定清空 ${projectData.inspirationClasses.length} 個靈感班名？此動作無法復原。`)) return;
+        projectData.inspirationClasses = [];
+        renderInspirationSection();
+        scheduleSaveDraft();
+        toast('已清空靈感班名清單', 'success');
+    });
+    document.getElementById('btn-inspiration-export').addEventListener('click', async () => {
+        const list = projectData.inspirationClasses || [];
+        if (!list.length) return;
+        try {
+            await navigator.clipboard.writeText(list.join('\n'));
+            toast(`已複製 ${list.length} 個班名到剪貼簿`, 'success');
+        } catch (e) {
+            toast('複製失敗：' + e.message, 'error');
+        }
+    });
+}
+// 渲染靈感班名 section（僅當有資料時才顯示 details）
+function renderInspirationSection() {
+    const sec = document.getElementById('inspiration-section');
+    const list = (projectData && projectData.inspirationClasses) || [];
+    if (!list.length) { sec.style.display = 'none'; return; }
+    sec.style.display = '';
+    document.getElementById('inspiration-count').textContent = `共 ${list.length} 個`;
+    const wrap = document.getElementById('inspiration-list');
+    wrap.innerHTML = '';
+    const max = 300;
+    list.slice(0, max).forEach(name => {
+        const chip = document.createElement('span');
+        chip.className = 'inspiration-chip';
+        chip.textContent = name;
+        wrap.appendChild(chip);
+    });
+    if (list.length > max) {
+        const more = document.createElement('span');
+        more.className = 'inspiration-chip inspiration-chip-more';
+        more.textContent = `…還有 ${list.length - max} 個`;
+        wrap.appendChild(more);
+    }
 }
 const ROW_HEIGHT = 60;
 function renderClassPopup() {
@@ -3934,7 +4143,8 @@ async function exportHTML() {
         let css = '';
         try { const r = await fetch('app.css'); if (r.ok) css = await r.text(); } catch (e) {}
         const viewerScript = buildViewerScript();
-        const html = `<!DOCTYPE html><html lang="zh-TW" data-theme="${AppStorage.Settings.getTheme()}" data-palette="${AppStorage.Settings.getPalette()}">
+        const currentViewMode = AppStorage.Settings.getViewMode();
+        const html = `<!DOCTYPE html><html lang="zh-TW" data-theme="${AppStorage.Settings.getTheme()}" data-palette="${AppStorage.Settings.getPalette()}" data-view-mode="${currentViewMode}">
 <head><meta charset="UTF-8"><title>${escapeHtml(projectData.name || '分類圖')}</title>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>${css}
@@ -4013,6 +4223,7 @@ async function exportHTML() {
 </style></head>
 <body><div class="viewer-toolbar"><h1>${escapeHtml(projectData.name || '分類圖')} <span style="font-size:11px;color:var(--text-muted);font-weight:400;">學科：${escapeHtml(projectData.subject || '')}</span></h1>
 <div class="viewer-toolbar-right">
+<button class="btn btn-small" id="vw-view-mode" title="切換顯示模式：完整 ↔ 骨架"><span id="vw-view-mode-icon">${currentViewMode === 'skeleton' ? '🦴' : '👁️'}</span> <span id="vw-view-mode-label">${currentViewMode === 'skeleton' ? '骨架' : '完整'}</span></button>
 <span style="font-size:12px;color:var(--text-muted);" id="zoom-info">縮放 100%</span>
 <button class="btn btn-small" id="z-out">−</button>
 <button class="btn btn-small" id="z-fit">符合視窗</button>
@@ -4037,7 +4248,7 @@ async function exportHTML() {
 <div class="viewer-canvas-wrapper" id="vw-outer"><div class="canvas-wrapper"><div id="canvas" class="canvas">
 <svg id="connector-layer" class="connector-layer" xmlns="http://www.w3.org/2000/svg"><defs id="connector-defs"></defs><g id="connector-group"></g></svg>
 </div></div></div>
-<script>window.EMBEDDED_PROJECT=${safeProject};window.EMBEDDED_ASSETS=${safeAssets};${viewerScript}</script>
+<script>window.EMBEDDED_PROJECT=${safeProject};window.EMBEDDED_ASSETS=${safeAssets};window.EMBEDDED_VIEW_MODE=${JSON.stringify(currentViewMode)};${viewerScript}</script>
 </body></html>`;
         const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
         downloadBlob(blob, (projectData.name || 'diagram') + '.html');
@@ -4050,6 +4261,7 @@ function buildViewerScript() {
     const projectData = window.EMBEDDED_PROJECT;
     const assets = window.EMBEDDED_ASSETS;
     let viewportZoom = 1;
+    let currentViewMode = (window.EMBEDDED_VIEW_MODE === 'skeleton') ? 'skeleton' : 'full';
     const TAG_CATEGORY_KEYS = ${JSON.stringify(TAG_CATEGORY_KEYS)};
     const TAG_CATEGORY_LABELS = ${JSON.stringify(TAG_CATEGORY_LABELS)};
 
@@ -4104,18 +4316,21 @@ function buildViewerScript() {
             if (!comp.props.subtitle) sub.style.display = 'none';
             body.appendChild(title); body.appendChild(sub);
             const cls = (comp.props.classes || []);
-            if (cls.length) {
+            const isSkeleton = currentViewMode === 'skeleton';
+            if (cls.length && !isSkeleton) {
                 const cc = document.createElement('div'); cc.className = 'card-classes-count';
                 cc.innerHTML = '<span>📋 班名：</span><span class="count-badge">' + cls.length + '</span>';
                 body.appendChild(cc);
             }
             div.appendChild(body);
-            const tagsW = document.createElement('div'); tagsW.className = 'card-tags';
-            let total = 0;
-            TAG_CATEGORY_KEYS.forEach(cat => { ((comp.props.assignedTags && comp.props.assignedTags[cat]) || []).forEach(tid => { const t = findTagById(cat, tid); if (!t) return; const chip = document.createElement('span'); chip.className = 'card-tag'; chip.style.background = t.color; chip.textContent = t.name; tagsW.appendChild(chip); total++; }); });
-            if (total) div.appendChild(tagsW);
-            // dblclick popup（讀取班名，遵循目前篩選）
-            if (cls.length) {
+            if (!isSkeleton) {
+                const tagsW = document.createElement('div'); tagsW.className = 'card-tags';
+                let total = 0;
+                TAG_CATEGORY_KEYS.forEach(cat => { ((comp.props.assignedTags && comp.props.assignedTags[cat]) || []).forEach(tid => { const t = findTagById(cat, tid); if (!t) return; const chip = document.createElement('span'); chip.className = 'card-tag'; chip.style.background = t.color; chip.textContent = t.name; tagsW.appendChild(chip); total++; }); });
+                if (total) div.appendChild(tagsW);
+            }
+            // dblclick popup：骨架模式不開啟（純展示）
+            if (cls.length && !isSkeleton) {
                 div.addEventListener('dblclick', () => openClassPopup(comp));
             }
         } else if (comp.type === 'text') {
@@ -4537,8 +4752,22 @@ function buildViewerScript() {
     document.getElementById('vw-outer').addEventListener('wheel', (e) => {
         if (e.ctrlKey) { e.preventDefault(); viewportZoom = Math.max(0.1, Math.min(4, viewportZoom * (e.deltaY < 0 ? 1.1 : 1/1.1))); applyZoom(); }
     }, { passive: false });
+    // 顯示模式切換（完整 ↔ 骨架）
+    function applyViewMode(){
+        document.documentElement.dataset.viewMode = currentViewMode;
+        const ic = document.getElementById('vw-view-mode-icon');
+        const lb = document.getElementById('vw-view-mode-label');
+        if (ic) ic.textContent = currentViewMode === 'skeleton' ? '🦴' : '👁️';
+        if (lb) lb.textContent = currentViewMode === 'skeleton' ? '骨架' : '完整';
+        renderAll();
+    }
+    document.getElementById('vw-view-mode').addEventListener('click', () => {
+        currentViewMode = (currentViewMode === 'skeleton') ? 'full' : 'skeleton';
+        applyViewMode();
+    });
     applyBoard(); renderAll();
     setupFilterUI();
+    applyViewMode();
     setTimeout(() => { document.getElementById('z-fit').click(); }, 50);
 })();`;
 }

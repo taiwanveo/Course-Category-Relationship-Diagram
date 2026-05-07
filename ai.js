@@ -463,6 +463,81 @@ ${tagsHint}
     }
 
     // ============================================================
+    // Prompt 構建（場景 A / B：建構骨架）
+    //   - 場景 A：scaffold-empty —— 完全憑空（無班名）
+    //   - 場景 B：scaffold-inspired —— 以使用者上傳的班名作為靈感（不寫入圖）
+    // 與 buildClassifyPrompt 不同：
+    //   - 不要求 AI 把班名寫到 classes 陣列，只要求骨架
+    //   - 可指定主分類數、每主分類的子分類數
+    //   - 標籤改為「給每個子分類附建議標籤」（可選）
+    // ============================================================
+    function buildScaffoldPrompt(subject, userPrompt, tagLibrary, opts) {
+        opts = opts || {};
+        const tagsHint = ['audience', 'level', 'attribute', 'topic', 'format'].map(cat => {
+            const lib = (tagLibrary && tagLibrary[cat]) || [];
+            const labels = { audience: 'A.對象', level: 'B.等級', attribute: 'C.屬性', topic: 'D.主題', format: 'E.形式' };
+            return `${labels[cat]}：${lib.map(t => t.name).join('、') || '（無）'}`;
+        }).join('\n');
+
+        const mainCount = parseInt(opts.targetMainCount, 10) || 0;
+        const subCount = parseInt(opts.targetSubCount, 10) || 0;
+        const attachTags = !!opts.attachTags;
+        const inspirationNames = Array.isArray(opts.inspirationNames) ? opts.inspirationNames : [];
+        const isInspired = inspirationNames.length > 0;
+
+        const scaleHint = (() => {
+            const parts = [];
+            if (mainCount > 0) parts.push(`請設計**約 ${mainCount} 個主分類**`);
+            else parts.push('請依學科特性自行決定主分類數量（建議 3–8 個）');
+            if (subCount > 0) parts.push(`每個主分類**約 ${subCount} 個子分類**`);
+            else parts.push('每個主分類的子分類數量自行決定（建議 2–5 個）');
+            return parts.join('，') + '。';
+        })();
+
+        const tagsBlock = attachTags
+            ? `
+
+請為**每個子分類**從下方標籤庫挑選最適合的建議標籤（每類 0-3 個，僅能挑選現有標籤名，不要創造新名稱）：
+${tagsHint}
+
+回傳格式中，每個子分類附 "tags" 物件（與班名相同結構）。`
+            : `
+
+**不需**附加標籤（tags 欄位請省略或保留空物件）。`;
+
+        const inspirationBlock = isInspired
+            ? `
+
+下方是使用者提供的「靈感班名清單」（共 ${inspirationNames.length} 個）。請以這些班名為**參考靈感**思考分類架構，但**不要把班名寫入回傳的 JSON**——產出的只是分類骨架，班名僅用來幫你判斷學科實際的開課樣貌：
+${inspirationNames.slice(0, 200).map((n, i) => `${i + 1}. ${n}`).join('\n')}${inspirationNames.length > 200 ? `\n...（其餘 ${inspirationNames.length - 200} 個省略）` : ''}`
+            : '';
+
+        const userExtra = userPrompt ? `\n額外要求：${userPrompt}\n` : '';
+
+        return `你是一個課程分類架構師。請依據「${subject}」這個學科，設計一份「主分類 → 子分類」**兩層分類骨架**。
+
+${scaleHint}${tagsBlock}${inspirationBlock}${userExtra}
+
+請只回傳純 JSON（不要使用 markdown code fence 或多餘說明），格式如下（所有 classes 陣列必須是空陣列 []）：
+{
+  "categories": [
+    {
+      "name": "主分類名",
+      "subcategories": [
+        {
+          "name": "子分類名",${attachTags ? `
+          "tags": { "audience": ["全員"], "level": ["基礎"], "attribute": ["善"], "topic": ["生成式AI"], "format": ["一般課程"] },` : ''}
+          "classes": []
+        }
+      ]
+    }
+  ]
+}
+
+注意：classes 陣列必須**保持空陣列**，這次任務只負責產出骨架，不分配具體班名。`;
+    }
+
+    // ============================================================
     // 統一介面：classifyClasses
     // ============================================================
     async function classifyClasses(rawClassNames, subject, userPrompt, providerId, model, tagLibrary, opts) {
@@ -496,6 +571,77 @@ ${tagsHint}
         }
         await AppStorage.setAICache(cacheKey, raw);
         return { fromCache: false, raw, parsed };
+    }
+
+    // ============================================================
+    // 統一介面：buildScaffold（憑空 / 以靈感班名建構骨架）
+    // opts: { targetMainCount, targetSubCount, attachTags, inspirationNames, signal, timeoutMs }
+    // 回傳結構同 classifyClasses，但每個 subcategory.classes 都是空陣列
+    // ============================================================
+    async function buildScaffold(subject, userPrompt, providerId, model, tagLibrary, opts) {
+        opts = opts || {};
+        const provider = getProvider(providerId);
+        const prompt = buildScaffoldPrompt(subject, userPrompt, tagLibrary, opts);
+
+        const cacheKey = await sha256(JSON.stringify({
+            kind: 'scaffold', p: providerId, m: model, s: subject, u: userPrompt,
+            tmc: opts.targetMainCount || 0, tsc: opts.targetSubCount || 0,
+            tag: !!opts.attachTags, ins: opts.inspirationNames || []
+        }));
+        const cached = await AppStorage.getAICache(cacheKey);
+        if (cached) {
+            return { fromCache: true, raw: cached, parsed: tryParseJson(cached) };
+        }
+
+        let raw;
+        if (provider.id === 'mock') {
+            raw = callMockScaffold(subject, tagLibrary, opts);
+        } else {
+            const apiKey = await loadApiKey(provider.id);
+            if (!apiKey) throw new Error(`尚未設定 ${provider.name} 的 API Key`);
+            const callOpts = { signal: opts.signal, timeoutMs: opts.timeoutMs };
+            if (provider.id === 'openai') raw = await callOpenAI(model || provider.defaultModel, prompt, apiKey, callOpts);
+            else if (provider.id === 'gemini') raw = await callGemini(model || provider.defaultModel, prompt, apiKey, callOpts);
+            else if (provider.id === 'grok') raw = await callGrok(model || provider.defaultModel, prompt, apiKey, callOpts);
+            else throw new Error('未知的 AI provider: ' + provider.id);
+        }
+
+        const parsed = tryParseJson(raw);
+        if (!parsed || !Array.isArray(parsed.categories)) {
+            throw new Error('AI 回應無法解析為預期格式（需含 categories 陣列）');
+        }
+        // 強制清空 classes（保險：避免 AI 沒遵守規則）
+        parsed.categories.forEach(cat => {
+            (cat.subcategories || []).forEach(sub => { sub.classes = []; });
+        });
+        await AppStorage.setAICache(cacheKey, raw);
+        return { fromCache: false, raw, parsed };
+    }
+
+    // Mock 骨架：給離線示範用，照 opts 規模回傳
+    function callMockScaffold(subject, tagLibrary, opts) {
+        opts = opts || {};
+        const mainCount = parseInt(opts.targetMainCount, 10) || 4;
+        const subCount = parseInt(opts.targetSubCount, 10) || 3;
+        const attachTags = !!opts.attachTags;
+        const pickFirst = (cat, n) => ((tagLibrary && tagLibrary[cat]) || []).slice(0, n).map(t => t.name);
+        const cats = [];
+        for (let i = 0; i < mainCount; i++) {
+            const subs = [];
+            for (let j = 0; j < subCount; j++) {
+                const sub = { name: `${subject}-子分類 ${i + 1}.${j + 1}`, classes: [] };
+                if (attachTags) {
+                    sub.tags = {
+                        audience: pickFirst('audience', 1), level: pickFirst('level', 1),
+                        attribute: pickFirst('attribute', 1), topic: pickFirst('topic', 1),
+                        format: pickFirst('format', 1)
+                    };
+                }
+                subs.push(sub);
+            }
+            cats.push({ name: `${subject}-主分類 ${i + 1}`, subcategories: subs });
+        }
+        return JSON.stringify({ categories: cats });
     }
 
     function tryParseJson(text) {
@@ -553,6 +699,6 @@ ${tagsHint}
         // 模型清單（即時抓取）
         fetchModels, getCachedModels,
         // 推論
-        classifyClasses, testApiKey, sha256
+        classifyClasses, buildScaffold, testApiKey, sha256
     };
 })();

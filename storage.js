@@ -32,7 +32,8 @@ window.AppStorage = (function () {
         storageNoticeDismissed: 'ccrd:storageNoticeDismissed',
         v1MigrationDone: 'ccrd:v1MigrationDone',
         sidebarLeftCollapsed: 'ccrd:sidebarLeftCollapsed',
-        textDefault: 'ccrd:default:text'
+        textDefault: 'ccrd:default:text',
+        viewMode: 'ccrd:viewMode'
     };
 
     function lsGet(key, def) {
@@ -71,7 +72,15 @@ window.AppStorage = (function () {
         setTextDefault(style) {
             try { lsSet(LS_KEYS.textDefault, JSON.stringify(style || {})); } catch (e) {}
         },
-        clearTextDefault() { lsDel(LS_KEYS.textDefault); }
+        clearTextDefault() { lsDel(LS_KEYS.textDefault); },
+        // 顯示模式：'full'（顯示班名等所有資訊） | 'skeleton'（只顯示分類骨架）
+        getViewMode() {
+            const v = lsGet(LS_KEYS.viewMode, 'full');
+            return v === 'skeleton' ? 'skeleton' : 'full';
+        },
+        setViewMode(v) {
+            lsSet(LS_KEYS.viewMode, v === 'skeleton' ? 'skeleton' : 'full');
+        }
     };
 
     // ============================================================

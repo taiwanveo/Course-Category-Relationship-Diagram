@@ -28,12 +28,25 @@
                 <button id="btn-ai-settings" class="btn btn-toolbar btn-ai" title="AI 模型與 API Key 設定">
                     <span>AI 設定</span>
                 </button>
-                <button id="btn-upload-classify" class="btn btn-toolbar btn-ai-action" title="上傳資料 → AI 自動分類">
-                    <span>📤 AI 分類</span>
-                </button>
+                <div class="dropdown" id="ai-action-dropdown-wrap">
+                    <button id="btn-upload-classify" class="btn btn-toolbar btn-ai-action" title="AI 建構分類架構（三種模式）">
+                        <span>🤖 AI 建構 ▾</span>
+                    </button>
+                    <div class="dropdown-menu" id="ai-action-dropdown">
+                        <div class="dropdown-section">建構分類骨架（無班名）</div>
+                        <button class="dropdown-item" data-aimode="scaffold-empty"><span class="icon">🏗️</span><span><b>從零建構骨架</b><br><small>不需資料，AI 憑空設計主／子分類</small></span></button>
+                        <button class="dropdown-item" data-aimode="scaffold-inspired"><span class="icon">💡</span><span><b>以班名為靈感建構骨架</b><br><small>上傳班名作參考，但不放入圖中</small></span></button>
+                        <div class="dropdown-section">完整 AI 分類（含班名）</div>
+                        <button class="dropdown-item" data-aimode="classify"><span class="icon">📤</span><span><b>上傳班名做完整分類</b><br><small>把班名分到對應子分類並貼標籤</small></span></button>
+                    </div>
+                </div>
                 <button id="btn-version-history" class="btn btn-toolbar" title="版本歷史">版本</button>
             </div>
             <div class="toolbar-right">
+                <button id="btn-view-mode" class="btn btn-toolbar" title="切換顯示模式：完整 ↔ 骨架（暫時隱藏班名與標籤）">
+                    <span id="view-mode-icon">👁️</span>
+                    <span id="view-mode-label">完整</span>
+                </button>
                 <button id="btn-theme-toggle" class="btn-icon" title="切換 Light / Dark 主題">
                     <span id="theme-icon">🌙</span>
                 </button>
@@ -362,8 +375,9 @@
         <!-- 上傳資料 → AI 分類 -->
         <div id="upload-overlay" class="modal-overlay" style="display:none;">
             <div class="modal modal-xl">
-                <h2>上傳資料 → AI 自動分類</h2>
-                <div class="upload-stepper">
+                <h2 id="upload-title">上傳資料 → AI 自動分類</h2>
+                <p class="modal-desc" id="upload-mode-desc" style="margin-top:-4px;"></p>
+                <div class="upload-stepper" id="upload-stepper">
                     <div class="step active" data-step="1"><span>1</span> 選檔與剖析</div>
                     <div class="step" data-step="2"><span>2</span> 確認資料</div>
                     <div class="step" data-step="3"><span>3</span> 學科與提示</div>
@@ -397,6 +411,20 @@
                             <label>選用提示詞（選填）</label>
                             <textarea id="upload-prompt" rows="3" placeholder="例如：請以「對象」、「等級」、「主題」、「形式」、「屬性」這五個面向設計子分類，並對每個班名建議標籤。請優先以實作型、生成式 AI、工作坊類為主軸。"></textarea>
                             <small>留空則使用內建預設提示詞。</small>
+                        </div>
+                        <!-- Scaffold 模式專用控制（憑空 / 靈感建構骨架時才顯示） -->
+                        <div class="modal-field upload-scaffold-options" id="upload-scaffold-options" style="display:none;">
+                            <label>骨架規模 <span style="color:var(--text-muted);font-size:11px;">（留空則交給 AI 自由發揮）</span></label>
+                            <div class="upload-scale-row">
+                                <span>主分類數</span>
+                                <input type="number" id="upload-target-main" min="1" max="20" placeholder="例：5" style="width:90px;">
+                                <span>每主分類的子分類數</span>
+                                <input type="number" id="upload-target-sub" min="1" max="15" placeholder="例：3" style="width:90px;">
+                            </div>
+                            <label class="upload-scaffold-checkbox">
+                                <input type="checkbox" id="upload-attach-tags" checked>
+                                <span>讓 AI 為每個子分類附上建議標籤（A/B/C/D/E 五大類各 0-3 個）</span>
+                            </label>
                         </div>
                         <div class="modal-field">
                             <label>AI 供應商與模型 <span style="color:var(--text-muted);font-size:11px;">（即時抓取最新清單）</span></label>
@@ -457,6 +485,18 @@
                     <div class="class-popup-spacer" id="class-popup-spacer"></div>
                     <div class="class-popup-items" id="class-popup-items"></div>
                 </div>
+                <!-- 靈感班名（場景 B 上傳但不放入圖中的班名） -->
+                <details class="inspiration-section" id="inspiration-section" style="display:none;">
+                    <summary>
+                        💡 靈感班名清單 <span class="inspiration-count" id="inspiration-count">0</span>
+                        <small>（建構骨架時上傳的參考用班名，未實際放入圖中）</small>
+                    </summary>
+                    <div class="inspiration-toolbar">
+                        <button id="btn-inspiration-clear" class="btn btn-small btn-danger">清空靈感清單</button>
+                        <button id="btn-inspiration-export" class="btn btn-small">📋 複製清單</button>
+                    </div>
+                    <div class="inspiration-list" id="inspiration-list"></div>
+                </details>
                 <div class="modal-actions">
                     <button id="btn-class-popup-close" class="btn">關閉</button>
                 </div>
