@@ -168,6 +168,36 @@
 
                 <!-- 全螢幕退出提示（只在 fullscreen-mode 顯示） -->
                 <button id="btn-exit-fullscreen" class="exit-fullscreen-btn" title="退出全螢幕（Esc）">✕ 退出全螢幕</button>
+
+                <!-- 全螢幕模式：塗鴉畫布（覆蓋整個視窗，僅在畫筆模式時接收事件） -->
+                <canvas id="fs-doodle-canvas" class="fs-doodle-canvas"></canvas>
+
+                <!-- 全螢幕模式：跟隨游標的浮動工具列 -->
+                <div id="fs-cursor-toolbar" class="fs-cursor-toolbar" role="toolbar" aria-label="全螢幕工具列">
+                    <button class="fs-tool-btn" data-fs-tool="zoom-in" title="以滑鼠位置為中心放大 +10%">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/><line x1="20" y1="20" x2="16" y2="16"/></svg>
+                    </button>
+                    <button class="fs-tool-btn" data-fs-tool="zoom-out" title="以滑鼠位置為中心縮小 −10%">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="8" y1="11" x2="14" y2="11"/><line x1="20" y1="20" x2="16" y2="16"/></svg>
+                    </button>
+                    <button class="fs-tool-btn" data-fs-tool="pen" title="畫筆塗鴉（再次點擊關閉，退出全螢幕後自動清除）">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7H12v-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>
+                    </button>
+                    <div class="fs-color-swatches" id="fs-color-swatches">
+                        <button class="fs-color-swatch active" data-fs-color="#ef4444" style="background:#ef4444;" title="紅色"></button>
+                        <button class="fs-color-swatch" data-fs-color="#f59e0b" style="background:#f59e0b;" title="橘色"></button>
+                        <button class="fs-color-swatch" data-fs-color="#10b981" style="background:#10b981;" title="綠色"></button>
+                        <button class="fs-color-swatch" data-fs-color="#3b82f6" style="background:#3b82f6;" title="藍色"></button>
+                        <button class="fs-color-swatch" data-fs-color="#ffffff" style="background:#ffffff;border:1px solid rgba(255,255,255,0.6);" title="白色"></button>
+                    </div>
+                    <button class="fs-tool-btn fs-tool-clear" data-fs-tool="clear" title="清除所有塗鴉">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+                    </button>
+                    <span class="fs-tool-divider"></span>
+                    <button class="fs-tool-btn fs-tool-exit" data-fs-tool="exit" title="退出全螢幕（Esc）">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 21 3 21 3 15"/><polyline points="15 3 21 3 21 9"/><line x1="3" y1="21" x2="10" y2="14"/><line x1="21" y1="3" x2="14" y2="10"/></svg>
+                    </button>
+                </div>
             </main>
 
             <!-- 右側屬性面板（彈出式） -->

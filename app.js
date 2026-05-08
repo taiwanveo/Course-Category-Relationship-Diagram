@@ -608,6 +608,7 @@ function setupEventListeners() {
     setupImportConflictModal();
     setupShortcutsHelpModal();
     setupMinimap();
+    setupFullscreenToolbar();
 
     // 預設 hover preview 隱藏
     document.getElementById('hover-preview').addEventListener('mouseenter', () => hideHoverPreview());
@@ -947,23 +948,210 @@ function toggleFullscreen() {
 }
 function enterFullscreenMode() {
     document.body.classList.add('fullscreen-mode');
-    // 同步呼叫瀏覽器 Fullscreen API（若支援，會用全螢幕填滿）
     try {
         if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
             document.documentElement.requestFullscreen().catch(() => {});
         }
     } catch (e) {}
-    // 重新計算 fit zoom 以填滿新可視範圍
-    setTimeout(() => { try { fitZoom(); } catch (e) {} updateMinimapViewport && updateMinimapViewport(); }, 80);
+    if (typeof resizeFsDoodleCanvas === 'function') resizeFsDoodleCanvas();
+    setTimeout(() => {
+        try { fitZoom(); } catch (e) {}
+        updateMinimapViewport && updateMinimapViewport();
+        resizeFsDoodleCanvas && resizeFsDoodleCanvas();
+    }, 80);
 }
 function exitFullscreenMode() {
     document.body.classList.remove('fullscreen-mode');
+    document.body.classList.remove('fs-pen-active');
+    document.body.classList.remove('fs-drawing');
+    document.body.classList.remove('has-doodle');
+    if (typeof clearFsDoodle === 'function') clearFsDoodle();
     try {
         if (document.fullscreenElement && document.exitFullscreen) {
             document.exitFullscreen().catch(() => {});
         }
     } catch (e) {}
     setTimeout(() => { try { fitZoom(); } catch (e) {} updateMinimapViewport && updateMinimapViewport(); }, 80);
+}
+
+// ============================================================
+// 全螢幕浮動工具列：跟隨游標、放大鏡 / 縮小鏡 / 畫筆 / 清除 / 退出
+// ============================================================
+let fsPenColor = '#ef4444';
+let fsPenWidth = 3;
+let fsCursorX = window.innerWidth / 2;
+let fsCursorY = window.innerHeight / 2;
+
+function resizeFsDoodleCanvas() {
+    const c = document.getElementById('fs-doodle-canvas');
+    if (!c) return;
+    const dpr = window.devicePixelRatio || 1;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    // 保留現有塗鴉（resize 不清空）
+    const oldData = c.width > 0 && c.height > 0 ? (function(){
+        try { const ctx = c.getContext('2d'); return ctx.getImageData(0, 0, c.width, c.height); } catch(e){ return null; }
+    })() : null;
+    c.width = w * dpr;
+    c.height = h * dpr;
+    c.style.width = w + 'px';
+    c.style.height = h + 'px';
+    const ctx = c.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (oldData) try { ctx.putImageData(oldData, 0, 0); } catch(e){}
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+}
+
+function clearFsDoodle() {
+    const c = document.getElementById('fs-doodle-canvas');
+    if (!c) return;
+    const ctx = c.getContext('2d');
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, c.width, c.height);
+    ctx.restore();
+    document.body.classList.remove('has-doodle');
+}
+
+function fsZoomAtCursor(delta) {
+    const outer = document.getElementById('canvas-wrapper-outer');
+    if (!outer) return;
+    const r = outer.getBoundingClientRect();
+    // 游標在 outer 內的相對位置（px）
+    const relX = Math.max(0, Math.min(r.width, fsCursorX - r.left));
+    const relY = Math.max(0, Math.min(r.height, fsCursorY - r.top));
+    const oldZoom = viewportZoom;
+    // 對齊到最近 5%
+    const stepped = Math.round(oldZoom * 20) / 20 + delta;
+    const newZoom = Math.max(0.1, Math.min(4, Math.round(stepped * 100) / 100));
+    if (newZoom === oldZoom) return;
+    // 游標下的畫布內容座標（不含 scroll）
+    const cx = (outer.scrollLeft + relX) / oldZoom;
+    const cy = (outer.scrollTop + relY) / oldZoom;
+    setViewportZoom(newZoom);
+    // 移動 scroll 讓同一個畫布座標仍位於游標下
+    requestAnimationFrame(() => {
+        outer.scrollLeft = cx * newZoom - relX;
+        outer.scrollTop = cy * newZoom - relY;
+    });
+}
+
+function setupFullscreenToolbar() {
+    const bar = document.getElementById('fs-cursor-toolbar');
+    const canvas = document.getElementById('fs-doodle-canvas');
+    if (!bar || !canvas) return;
+
+    // 跟隨游標：節流（每 16ms 更新一次）
+    let lastUpdate = 0;
+    let pinned = false; // 滑鼠在工具列上時不跟隨
+    function placeBar(cx, cy) {
+        const w = bar.offsetWidth || 280;
+        const h = bar.offsetHeight || 44;
+        let x = cx + 24;
+        let y = cy + 24;
+        if (x + w > window.innerWidth - 8) x = cx - w - 24;
+        if (y + h > window.innerHeight - 8) y = cy - h - 24;
+        x = Math.max(8, x);
+        y = Math.max(8, y);
+        bar.style.transform = `translate(${x}px, ${y}px)`;
+    }
+    document.addEventListener('mousemove', (e) => {
+        fsCursorX = e.clientX;
+        fsCursorY = e.clientY;
+        if (!document.body.classList.contains('fullscreen-mode')) return;
+        if (pinned) return;
+        const now = performance.now();
+        if (now - lastUpdate < 16) return;
+        lastUpdate = now;
+        placeBar(e.clientX, e.clientY);
+    }, { passive: true });
+
+    bar.addEventListener('mouseenter', () => { pinned = true; });
+    bar.addEventListener('mouseleave', () => { pinned = false; });
+
+    // 點擊工具按鈕
+    bar.querySelectorAll('.fs-tool-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const tool = btn.dataset.fsTool;
+            if (tool === 'zoom-in') fsZoomAtCursor(0.1);
+            else if (tool === 'zoom-out') fsZoomAtCursor(-0.1);
+            else if (tool === 'pen') {
+                const isOn = document.body.classList.toggle('fs-pen-active');
+                btn.classList.toggle('active', isOn);
+            } else if (tool === 'clear') {
+                clearFsDoodle();
+            } else if (tool === 'exit') {
+                exitFullscreenMode();
+            }
+        });
+    });
+
+    // 顏色色票
+    bar.querySelectorAll('.fs-color-swatch').forEach(s => {
+        s.addEventListener('click', (e) => {
+            e.stopPropagation();
+            fsPenColor = s.dataset.fsColor || '#ef4444';
+            bar.querySelectorAll('.fs-color-swatch').forEach(x => x.classList.toggle('active', x === s));
+        });
+    });
+
+    // 塗鴉 - 滑鼠
+    let drawing = false;
+    let lastPt = null;
+    function startDraw(x, y) {
+        drawing = true;
+        lastPt = { x, y };
+        document.body.classList.add('fs-drawing');
+        document.body.classList.add('has-doodle');
+    }
+    function moveDraw(x, y) {
+        if (!drawing || !lastPt) return;
+        const ctx = canvas.getContext('2d');
+        ctx.strokeStyle = fsPenColor;
+        ctx.lineWidth = fsPenWidth;
+        ctx.beginPath();
+        ctx.moveTo(lastPt.x, lastPt.y);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+        lastPt = { x, y };
+    }
+    function endDraw() {
+        drawing = false;
+        lastPt = null;
+        document.body.classList.remove('fs-drawing');
+    }
+    canvas.addEventListener('mousedown', (e) => {
+        if (!document.body.classList.contains('fs-pen-active')) return;
+        startDraw(e.clientX, e.clientY);
+        e.preventDefault();
+    });
+    document.addEventListener('mousemove', (e) => {
+        if (drawing) moveDraw(e.clientX, e.clientY);
+    });
+    document.addEventListener('mouseup', endDraw);
+    // 觸控（pad / 觸控螢幕）
+    canvas.addEventListener('touchstart', (e) => {
+        if (!document.body.classList.contains('fs-pen-active')) return;
+        const t = e.touches[0]; if (!t) return;
+        startDraw(t.clientX, t.clientY);
+        e.preventDefault();
+    }, { passive: false });
+    canvas.addEventListener('touchmove', (e) => {
+        const t = e.touches[0]; if (!t) return;
+        if (drawing) moveDraw(t.clientX, t.clientY);
+        e.preventDefault();
+    }, { passive: false });
+    canvas.addEventListener('touchend', endDraw);
+
+    // 視窗 resize
+    window.addEventListener('resize', () => {
+        if (document.body.classList.contains('fullscreen-mode')) resizeFsDoodleCanvas();
+    });
+
+    // 初始置中（避免一進入時跳到角落）
+    placeBar(window.innerWidth / 2, window.innerHeight / 2);
 }
 
 // ============================================================
@@ -5783,6 +5971,31 @@ body.fullscreen-mode .minimap { z-index: 9998; }
 .minimap-resize-handle { position: absolute; left: -2px; bottom: -2px; width: 14px; height: 14px; cursor: nesw-resize; z-index: 2; background: linear-gradient(45deg, transparent 50%, rgba(99,102,241,0.6) 50%); border-radius: 0 0 0 6px; opacity: 0; transition: opacity 0.2s; }
 .minimap:hover .minimap-resize-handle { opacity: 0.7; }
 .minimap-resize-handle:hover { opacity: 1 !important; }
+
+/* ===== 全螢幕浮動工具列 + 塗鴉 ===== */
+.fs-doodle-canvas { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 9996; display: none; }
+body.fullscreen-mode .fs-doodle-canvas { display: block; }
+body.fullscreen-mode.fs-pen-active .fs-doodle-canvas { pointer-events: auto; cursor: crosshair; }
+.fs-cursor-toolbar { position: fixed; top: 0; left: 0; z-index: 10000; display: none; align-items: center; gap: 4px; padding: 6px; background: rgba(15,23,42,0.92); border-radius: 999px; box-shadow: 0 4px 12px -2px rgba(0,0,0,0.35), 0 16px 32px -8px rgba(0,0,0,0.55); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); transition: opacity 0.18s ease, transform 0.12s ease-out; transform: translate(0, 0); will-change: transform; user-select: none; pointer-events: auto; opacity: 0.92; }
+body.fullscreen-mode .fs-cursor-toolbar { display: inline-flex; }
+.fs-cursor-toolbar:hover { opacity: 1; }
+body.fullscreen-mode.fs-drawing .fs-cursor-toolbar { opacity: 0.3; pointer-events: none; }
+.fs-tool-btn { width: 32px; height: 32px; padding: 0; border: none; background: transparent; color: rgba(255,255,255,0.92); border-radius: 999px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.12s, color 0.12s, transform 0.08s; flex-shrink: 0; }
+.fs-tool-btn svg { width: 18px; height: 18px; display: block; }
+.fs-tool-btn:hover { background: rgba(255,255,255,0.14); }
+.fs-tool-btn:active { transform: scale(0.92); }
+.fs-tool-btn.active { background: rgba(99,102,241,0.85); color: #fff; box-shadow: 0 0 0 2px rgba(99,102,241,0.35); }
+.fs-tool-btn.fs-tool-exit { color: rgba(254,202,202,0.95); }
+.fs-tool-btn.fs-tool-exit:hover { background: rgba(220,38,38,0.55); color: #fff; }
+.fs-tool-btn.fs-tool-clear { color: rgba(252,211,77,0.95); display: none; }
+.fs-tool-btn.fs-tool-clear:hover { background: rgba(217,119,6,0.55); color: #fff; }
+body.fullscreen-mode.has-doodle .fs-tool-clear { display: inline-flex; }
+.fs-tool-divider { width: 1px; height: 18px; background: rgba(255,255,255,0.18); margin: 0 2px; flex-shrink: 0; }
+.fs-color-swatches { display: none; align-items: center; gap: 3px; padding: 0 4px; border-left: 1px solid rgba(255,255,255,0.18); margin-left: 2px; }
+body.fullscreen-mode.fs-pen-active .fs-color-swatches { display: inline-flex; }
+.fs-color-swatch { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid rgba(255,255,255,0.4); cursor: pointer; padding: 0; transition: transform 0.1s, border-color 0.12s; flex-shrink: 0; }
+.fs-color-swatch:hover { transform: scale(1.15); }
+.fs-color-swatch.active { border: 2px solid #fff; box-shadow: 0 0 0 2px rgba(99,102,241,0.6); transform: scale(1.1); }
 </style></head>
 <body><div class="viewer-toolbar"><h1>${escapeHtml(projectData.name || '分類圖')} <span style="font-size:11px;color:var(--text-muted);font-weight:400;">學科：${escapeHtml(projectData.subject || '')}</span></h1>
 <div class="viewer-toolbar-right">
@@ -5797,6 +6010,26 @@ body.fullscreen-mode .minimap { z-index: 9998; }
 <button class="btn btn-small" id="z-100">100%</button>
 </div></div>
 <button id="vw-exit-fullscreen" class="exit-fullscreen-btn" title="退出全螢幕（Esc）">✕ 退出全螢幕</button>
+
+<!-- 全螢幕模式：塗鴉畫布 -->
+<canvas id="vw-fs-doodle" class="fs-doodle-canvas"></canvas>
+<!-- 全螢幕模式：跟隨游標的浮動工具列 -->
+<div id="vw-fs-toolbar" class="fs-cursor-toolbar" role="toolbar" aria-label="全螢幕工具列">
+    <button class="fs-tool-btn" data-fs-tool="zoom-in" title="以滑鼠位置為中心放大 +10%"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/><line x1="20" y1="20" x2="16" y2="16"/></svg></button>
+    <button class="fs-tool-btn" data-fs-tool="zoom-out" title="以滑鼠位置為中心縮小 −10%"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="8" y1="11" x2="14" y2="11"/><line x1="20" y1="20" x2="16" y2="16"/></svg></button>
+    <button class="fs-tool-btn" data-fs-tool="pen" title="畫筆塗鴉（再次點擊關閉，退出全螢幕後自動清除）"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7H12v-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg></button>
+    <div class="fs-color-swatches">
+        <button class="fs-color-swatch active" data-fs-color="#ef4444" style="background:#ef4444;" title="紅色"></button>
+        <button class="fs-color-swatch" data-fs-color="#f59e0b" style="background:#f59e0b;" title="橘色"></button>
+        <button class="fs-color-swatch" data-fs-color="#10b981" style="background:#10b981;" title="綠色"></button>
+        <button class="fs-color-swatch" data-fs-color="#3b82f6" style="background:#3b82f6;" title="藍色"></button>
+        <button class="fs-color-swatch" data-fs-color="#ffffff" style="background:#ffffff;border:1px solid rgba(255,255,255,0.6);" title="白色"></button>
+    </div>
+    <button class="fs-tool-btn fs-tool-clear" data-fs-tool="clear" title="清除所有塗鴉"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>
+    <span class="fs-tool-divider"></span>
+    <button class="fs-tool-btn fs-tool-exit" data-fs-tool="exit" title="退出全螢幕（Esc）"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 21 3 21 3 15"/><polyline points="15 3 21 3 21 9"/><line x1="3" y1="21" x2="10" y2="14"/><line x1="21" y1="3" x2="14" y2="10"/></svg></button>
+</div>
+
 <aside id="vw-minimap" class="minimap" style="display:none;">
     <div class="minimap-header" id="vw-minimap-header">
         <span class="minimap-title">🗺️ <span>縮圖</span></span>
@@ -6410,10 +6643,15 @@ function buildViewerScript() {
     function enterFs(){
         document.body.classList.add('fullscreen-mode');
         try { if (document.documentElement.requestFullscreen && !document.fullscreenElement) document.documentElement.requestFullscreen().catch(()=>{}); } catch(e){}
-        setTimeout(()=>{ try{ fitZoomViewer(); }catch(e){} updateMmViewport(); }, 80);
+        resizeFsCanvas();
+        setTimeout(()=>{ try{ fitZoomViewer(); }catch(e){} updateMmViewport(); resizeFsCanvas(); }, 80);
     }
     function exitFs(){
         document.body.classList.remove('fullscreen-mode');
+        document.body.classList.remove('fs-pen-active');
+        document.body.classList.remove('fs-drawing');
+        document.body.classList.remove('has-doodle');
+        clearFsDoodle();
         try { if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(()=>{}); } catch(e){}
         setTimeout(()=>{ try{ fitZoomViewer(); }catch(e){} updateMmViewport(); }, 80);
     }
@@ -6421,6 +6659,137 @@ function buildViewerScript() {
         document.body.classList.contains('fullscreen-mode') ? exitFs() : enterFs();
     });
     document.getElementById('vw-exit-fullscreen').addEventListener('click', exitFs);
+
+    // ========== 全螢幕浮動工具列：跟隨游標 / 區域縮放 / 畫筆 / 清除 / 退出 ==========
+    let fsPenColor = '#ef4444';
+    const fsPenWidth = 3;
+    let fsCursorX = window.innerWidth / 2;
+    let fsCursorY = window.innerHeight / 2;
+    const fsDoodle = document.getElementById('vw-fs-doodle');
+    const fsBar = document.getElementById('vw-fs-toolbar');
+    function resizeFsCanvas(){
+        if (!fsDoodle) return;
+        const dpr = window.devicePixelRatio || 1;
+        const w = window.innerWidth, h = window.innerHeight;
+        const ctx = fsDoodle.getContext('2d');
+        let saved = null;
+        if (fsDoodle.width > 0 && fsDoodle.height > 0) {
+            try { saved = ctx.getImageData(0, 0, fsDoodle.width, fsDoodle.height); } catch(e){}
+        }
+        fsDoodle.width = w * dpr;
+        fsDoodle.height = h * dpr;
+        fsDoodle.style.width = w + 'px'; fsDoodle.style.height = h + 'px';
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        if (saved) try { ctx.putImageData(saved, 0, 0); } catch(e){}
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    }
+    function clearFsDoodle(){
+        if (!fsDoodle) return;
+        const ctx = fsDoodle.getContext('2d');
+        ctx.save(); ctx.setTransform(1,0,0,1,0,0);
+        ctx.clearRect(0, 0, fsDoodle.width, fsDoodle.height);
+        ctx.restore();
+        document.body.classList.remove('has-doodle');
+    }
+    function fsZoomAtCursor(delta){
+        const outer = document.querySelector('.canvas-wrapper-outer') || document.querySelector('.canvas-area');
+        if (!outer) return;
+        const r = outer.getBoundingClientRect();
+        const relX = Math.max(0, Math.min(r.width, fsCursorX - r.left));
+        const relY = Math.max(0, Math.min(r.height, fsCursorY - r.top));
+        const oldZoom = viewportZoom;
+        const stepped = Math.round(oldZoom * 20) / 20 + delta;
+        const newZoom = Math.max(0.1, Math.min(4, Math.round(stepped * 100) / 100));
+        if (newZoom === oldZoom) return;
+        const cx = (outer.scrollLeft + relX) / oldZoom;
+        const cy = (outer.scrollTop + relY) / oldZoom;
+        viewportZoom = newZoom;
+        applyZoom();
+        userAdjusted = true;
+        requestAnimationFrame(() => {
+            outer.scrollLeft = cx * newZoom - relX;
+            outer.scrollTop = cy * newZoom - relY;
+            updateMmViewport();
+        });
+    }
+    if (fsBar) {
+        let pinned = false;
+        let lastMove = 0;
+        function placeBar(cx, cy){
+            const w = fsBar.offsetWidth || 280, h = fsBar.offsetHeight || 44;
+            let x = cx + 24, y = cy + 24;
+            if (x + w > window.innerWidth - 8) x = cx - w - 24;
+            if (y + h > window.innerHeight - 8) y = cy - h - 24;
+            x = Math.max(8, x); y = Math.max(8, y);
+            fsBar.style.transform = 'translate(' + x + 'px, ' + y + 'px)';
+        }
+        document.addEventListener('mousemove', (e) => {
+            fsCursorX = e.clientX; fsCursorY = e.clientY;
+            if (!document.body.classList.contains('fullscreen-mode') || pinned) return;
+            const now = performance.now();
+            if (now - lastMove < 16) return;
+            lastMove = now;
+            placeBar(e.clientX, e.clientY);
+        }, { passive: true });
+        fsBar.addEventListener('mouseenter', () => { pinned = true; });
+        fsBar.addEventListener('mouseleave', () => { pinned = false; });
+        fsBar.querySelectorAll('.fs-tool-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const tool = btn.dataset.fsTool;
+                if (tool === 'zoom-in') fsZoomAtCursor(0.1);
+                else if (tool === 'zoom-out') fsZoomAtCursor(-0.1);
+                else if (tool === 'pen') {
+                    const isOn = document.body.classList.toggle('fs-pen-active');
+                    btn.classList.toggle('active', isOn);
+                } else if (tool === 'clear') clearFsDoodle();
+                else if (tool === 'exit') exitFs();
+            });
+        });
+        fsBar.querySelectorAll('.fs-color-swatch').forEach(s => {
+            s.addEventListener('click', (e) => {
+                e.stopPropagation();
+                fsPenColor = s.dataset.fsColor || '#ef4444';
+                fsBar.querySelectorAll('.fs-color-swatch').forEach(x => x.classList.toggle('active', x === s));
+            });
+        });
+        placeBar(window.innerWidth / 2, window.innerHeight / 2);
+    }
+    if (fsDoodle) {
+        let drawing = false, lastPt = null;
+        function startDraw(x, y){
+            drawing = true; lastPt = { x, y };
+            document.body.classList.add('fs-drawing');
+            document.body.classList.add('has-doodle');
+        }
+        function moveDraw(x, y){
+            if (!drawing || !lastPt) return;
+            const ctx = fsDoodle.getContext('2d');
+            ctx.strokeStyle = fsPenColor; ctx.lineWidth = fsPenWidth;
+            ctx.beginPath(); ctx.moveTo(lastPt.x, lastPt.y); ctx.lineTo(x, y); ctx.stroke();
+            lastPt = { x, y };
+        }
+        function endDraw(){ drawing = false; lastPt = null; document.body.classList.remove('fs-drawing'); }
+        fsDoodle.addEventListener('mousedown', (e) => {
+            if (!document.body.classList.contains('fs-pen-active')) return;
+            startDraw(e.clientX, e.clientY); e.preventDefault();
+        });
+        document.addEventListener('mousemove', (e) => { if (drawing) moveDraw(e.clientX, e.clientY); });
+        document.addEventListener('mouseup', endDraw);
+        fsDoodle.addEventListener('touchstart', (e) => {
+            if (!document.body.classList.contains('fs-pen-active')) return;
+            const t = e.touches[0]; if (!t) return;
+            startDraw(t.clientX, t.clientY); e.preventDefault();
+        }, { passive: false });
+        fsDoodle.addEventListener('touchmove', (e) => {
+            const t = e.touches[0]; if (!t) return;
+            if (drawing) moveDraw(t.clientX, t.clientY); e.preventDefault();
+        }, { passive: false });
+        fsDoodle.addEventListener('touchend', endDraw);
+        window.addEventListener('resize', () => {
+            if (document.body.classList.contains('fullscreen-mode')) resizeFsCanvas();
+        });
+    }
     document.addEventListener('fullscreenchange', () => {
         if (!document.fullscreenElement && document.body.classList.contains('fullscreen-mode')) {
             document.body.classList.remove('fullscreen-mode');

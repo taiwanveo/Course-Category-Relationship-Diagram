@@ -2725,3 +2725,116 @@ body.fullscreen-mode .minimap { right: 16px; bottom: 16px; z-index: 9998; }
         0 4px 12px -2px rgba(0,0,0,0.4),
         0 16px 32px -8px rgba(0,0,0,0.6);
 }
+
+/* =============================================
+   全螢幕模式：跟隨游標的浮動工具列 + 塗鴉畫布
+   ============================================= */
+
+/* 塗鴉畫布（覆蓋整個視窗） */
+.fs-doodle-canvas {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100vw;
+    height: 100vh;
+    pointer-events: none;
+    z-index: 9996;
+    display: none;
+}
+body.fullscreen-mode .fs-doodle-canvas { display: block; }
+body.fullscreen-mode.fs-pen-active .fs-doodle-canvas {
+    pointer-events: auto;
+    cursor: crosshair;
+}
+
+/* 跟隨游標的工具列 */
+.fs-cursor-toolbar {
+    position: fixed;
+    top: 0; left: 0;
+    z-index: 10000;
+    display: none;
+    align-items: center;
+    gap: 4px;
+    padding: 6px;
+    background: rgba(15, 23, 42, 0.92);
+    border-radius: 999px;
+    box-shadow:
+        0 4px 12px -2px rgba(0,0,0,0.35),
+        0 16px 32px -8px rgba(0,0,0,0.55);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    transition: opacity 0.18s ease, transform 0.12s ease-out;
+    transform: translate(0, 0);
+    will-change: transform;
+    user-select: none;
+    pointer-events: auto;
+    opacity: 0.92;
+}
+body.fullscreen-mode .fs-cursor-toolbar { display: inline-flex; }
+.fs-cursor-toolbar:hover { opacity: 1; }
+
+/* 塗鴉中時：工具列稍微隱藏（不擋畫筆） */
+body.fullscreen-mode.fs-drawing .fs-cursor-toolbar { opacity: 0.3; pointer-events: none; }
+
+.fs-tool-btn {
+    width: 32px; height: 32px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: rgba(255,255,255,0.92);
+    border-radius: 999px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.12s, color 0.12s, transform 0.08s;
+    flex-shrink: 0;
+}
+.fs-tool-btn svg { width: 18px; height: 18px; display: block; }
+.fs-tool-btn:hover { background: rgba(255,255,255,0.14); }
+.fs-tool-btn:active { transform: scale(0.92); }
+.fs-tool-btn.active {
+    background: rgba(99,102,241,0.85);
+    color: #fff;
+    box-shadow: 0 0 0 2px rgba(99,102,241,0.35);
+}
+.fs-tool-btn.fs-tool-exit {
+    color: rgba(254, 202, 202, 0.95);
+}
+.fs-tool-btn.fs-tool-exit:hover { background: rgba(220,38,38,0.55); color: #fff; }
+.fs-tool-btn.fs-tool-clear { color: rgba(252, 211, 77, 0.95); }
+.fs-tool-btn.fs-tool-clear:hover { background: rgba(217,119,6,0.55); color: #fff; }
+
+.fs-tool-divider {
+    width: 1px; height: 18px;
+    background: rgba(255,255,255,0.18);
+    margin: 0 2px;
+    flex-shrink: 0;
+}
+
+/* 顏色色票（畫筆模式才顯示） */
+.fs-color-swatches {
+    display: none;
+    align-items: center;
+    gap: 3px;
+    padding: 0 4px;
+    border-left: 1px solid rgba(255,255,255,0.18);
+    margin-left: 2px;
+}
+body.fullscreen-mode.fs-pen-active .fs-color-swatches { display: inline-flex; }
+body.fullscreen-mode.fs-pen-active .fs-tool-clear { display: inline-flex; }
+.fs-tool-clear { display: none; }
+body.fullscreen-mode.has-doodle .fs-tool-clear { display: inline-flex; }
+
+.fs-color-swatch {
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(255,255,255,0.4);
+    cursor: pointer;
+    padding: 0;
+    transition: transform 0.1s, border-color 0.12s;
+    flex-shrink: 0;
+}
+.fs-color-swatch:hover { transform: scale(1.15); }
+.fs-color-swatch.active {
+    border: 2px solid #fff;
+    box-shadow: 0 0 0 2px rgba(99,102,241,0.6);
+    transform: scale(1.1);
+}
