@@ -4096,8 +4096,9 @@ async function renderLibrary() {
         wrap.appendChild(card);
     });
 }
-async function switchToDiagram(id) {
-    await persistCurrentDiagram();
+async function switchToDiagram(id, opts = {}) {
+    // skipPersist：呼叫端已經自行處理過 persist／save，避免再次 persist 把剛剛覆蓋寫入的資料蓋回去
+    if (!opts.skipPersist) await persistCurrentDiagram();
     const d = await AppStorage.getDiagram(id);
     if (!d) { toast('找不到分類圖', 'error'); return; }
     setActiveDiagram(d);
@@ -4105,7 +4106,7 @@ async function switchToDiagram(id) {
     renderCanvas();
     updateTitleBar();
     deselectAll();
-    toast(`已切換到「${d.name}」`, 'success');
+    if (!opts.silent) toast(`已切換到「${d.name}」`, 'success');
 }
 
 let diagramMetaTarget = null; // null=新增；object=編輯
@@ -7691,10 +7692,16 @@ async function importDiagramJson(data) {
 }
 
 async function finishImportDiagram(data, asNew) {
+    // 1) 先把目前編輯器狀態保存到它自己的記錄（避免使用者未存的內容遺失）
+    //    一定要在「保存匯入資料」之前，否則會用編輯器的舊版蓋掉剛寫入的匯入資料
+    if (saveDraftTimeout) { clearTimeout(saveDraftTimeout); saveDraftTimeout = null; }
+    await persistCurrentDiagram();
+    // 2) 另存新檔模式：給新 id；覆蓋模式：保留原 id（saveDiagram 會 put 覆寫同 id 的記錄）
     if (asNew) data.id = AppStorage.generateUUID();
     await AppStorage.saveDiagram(data);
-    await switchToDiagram(data.id);
-    toast('已匯入並切換', 'success');
+    // 3) 切換到匯入後的版本，但要 skipPersist，避免 switchToDiagram 內又把舊的 projectData 寫回去
+    await switchToDiagram(data.id, { skipPersist: true, silent: true });
+    toast(asNew ? '已匯入為新分類圖並切換' : '已用匯入檔覆蓋本地並切換', 'success');
 }
 
 function setupImportConflictModal() {
