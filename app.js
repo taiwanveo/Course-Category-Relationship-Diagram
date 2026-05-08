@@ -2298,14 +2298,18 @@ function bindComponentPropertyEvents(comp) {
                 btn.addEventListener('click', () => {
                     const newShape = btn.dataset.shape || 'default';
                     comp.style.cardShape = newShape;
-                    // pill 兩端圓弧會吃掉 ~高度/2 的空間，太窄會把文字截斷，
-                    // 自動把寬度補足到 (高度*2 + 內容空間)
+                    // pill 兩端圓弧會吃掉 ~高度/2 的空間，太窄會把文字截斷
                     if (newShape === 'pill') {
+                        // 自動把寬度補足到 (高度*2 + 內容空間)
                         const minPillW = Math.max(380, Math.round(comp.h * 2.4));
                         if (comp.w < minPillW) {
                             const maxAllowed = Math.max(comp.w, projectData.board.w - comp.x - 40);
                             comp.w = Math.min(maxAllowed, minPillW);
                         }
+                        // 把內距預設為 24（依使用者實測，這個值能完美避開文字被弧形截斷）
+                        comp.style.padding = 24;
+                        const padInput = document.getElementById('prop-padding');
+                        if (padInput) padInput.value = 24;
                     }
                     shapeGrid.querySelectorAll('.card-shape-btn').forEach(b => b.classList.toggle('active', b === btn));
                     renderCanvas(); scheduleSaveDraft();
