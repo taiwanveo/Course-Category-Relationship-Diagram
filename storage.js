@@ -33,6 +33,7 @@ window.AppStorage = (function () {
         v1MigrationDone: 'ccrd:v1MigrationDone',
         sidebarLeftCollapsed: 'ccrd:sidebarLeftCollapsed',
         textDefault: 'ccrd:default:text',
+        cardDefault: 'ccrd:default:card',
         viewMode: 'ccrd:viewMode'
     };
 
@@ -73,6 +74,14 @@ window.AppStorage = (function () {
             try { lsSet(LS_KEYS.textDefault, JSON.stringify(style || {})); } catch (e) {}
         },
         clearTextDefault() { lsDel(LS_KEYS.textDefault); },
+        // 課程類別卡的使用者自訂預設樣式
+        getCardDefault() {
+            try { const v = lsGet(LS_KEYS.cardDefault, ''); return v ? JSON.parse(v) : null; } catch (e) { return null; }
+        },
+        setCardDefault(style) {
+            try { lsSet(LS_KEYS.cardDefault, JSON.stringify(style || {})); } catch (e) {}
+        },
+        clearCardDefault() { lsDel(LS_KEYS.cardDefault); },
         // 顯示模式：'full'（顯示班名等所有資訊） | 'skeleton'（只顯示分類骨架）
         getViewMode() {
             const v = lsGet(LS_KEYS.viewMode, 'full');

@@ -910,7 +910,7 @@ function createComponent(type) {
     const id = 'c' + (componentIdCounter++);
     const base = { id, type, x: 200, y: 200, w: 320, h: 80, locked: false, zIndex: 0, props: {}, style: {} };
     switch (type) {
-        case 'course-category':
+        case 'course-category': {
             base.w = 320; base.h = 150;
             base.props = {
                 title: '課程類別',
@@ -918,12 +918,16 @@ function createComponent(type) {
                 assignedTags: { audience: [], level: [], attribute: [], topic: [], format: [] },
                 classes: []
             };
-            base.style = {
+            const defaultStyle = {
                 fontFamily: "'Noto Sans TC', sans-serif",
                 titleFontSize: 22,
                 subtitleFontSize: 14,
+                subtitleFontFamily: '',          // '' = 跟隨主標題
+                subtitleColor: '',               // '' = 跟隨主文字色
                 color: '#0f172a',
                 backgroundColor: '#ffffff',
+                backgroundOpacity: 100,
+                backgroundGradient: '',          // '' = 不使用漸層；非空 = CSS gradient string
                 borderColor: (typeof getPaletteColors === 'function' ? getPaletteColors().main : '#6366f1'),
                 borderWidth: 1,
                 borderStyle: 'solid',
@@ -931,9 +935,13 @@ function createComponent(type) {
                 padding: 16,
                 boxShadow: '',
                 textAlign: 'left',
-                tagPosition: 'bottom'
+                tagPosition: 'bottom',
+                cardShape: 'default'             // 'default' | 'pill' | 'sharp' | 'tab' | 'glass' | 'outlined'
             };
+            const userDefault = AppStorage.Settings.getCardDefault && AppStorage.Settings.getCardDefault();
+            base.style = userDefault ? Object.assign({}, defaultStyle, userDefault) : defaultStyle;
             break;
+        }
         case 'text': {
             base.w = 240; base.h = 50;
             base.props = { text: '請輸入文字' };
@@ -1080,6 +1088,7 @@ function createComponentElement(comp) {
 
 function renderCategoryCard(div, comp) {
     div.dataset.tagPosition = comp.style.tagPosition || 'bottom';
+    div.dataset.cardShape = comp.style.cardShape || 'default';
     // 偵測是否為主分類（有 outgoing connector 但沒 incoming），給 ::before accent strip 用
     if (typeof projectData !== 'undefined' && projectData) {
         const hasIncoming = projectData.connectors.some(cn => cn.toComponentId === comp.id);
@@ -1091,13 +1100,24 @@ function renderCategoryCard(div, comp) {
     const s = comp.style;
     // accent strip 顏色（用 borderColor 當主色，由 CSS ::before 顯示）
     div.style.setProperty('--card-accent', s.borderColor || '#6366f1');
-    div.style.background = s.backgroundColor;
+    // 背景：優先用漸層 → 其次用 backgroundColor + opacity
+    if (s.backgroundGradient) {
+        div.style.background = s.backgroundGradient;
+    } else {
+        const bg = composeBgColor(s.backgroundColor, s.backgroundOpacity != null ? s.backgroundOpacity : 100);
+        div.style.background = bg || s.backgroundColor || '#ffffff';
+    }
     div.style.color = s.color;
     div.style.borderColor = s.borderColor;
-    // 預設細邊框（1px），保留使用者自訂 borderWidth
     div.style.borderWidth = (s.borderWidth || 1) + 'px';
     div.style.borderStyle = s.borderStyle || 'solid';
-    div.style.borderRadius = (s.borderRadius || 16) + 'px';
+    // 形狀為 pill / sharp 時讓 CSS 接管 border-radius（避免 inline override）
+    const shape = s.cardShape || 'default';
+    if (shape === 'pill' || shape === 'sharp') {
+        div.style.removeProperty('border-radius');
+    } else {
+        div.style.borderRadius = (s.borderRadius || 16) + 'px';
+    }
     div.style.boxShadow = s.boxShadow || '';
     div.style.fontFamily = s.fontFamily || 'inherit';
     div.style.textAlign = s.textAlign || 'left';
@@ -1112,6 +1132,8 @@ function renderCategoryCard(div, comp) {
     const sub = document.createElement('div');
     sub.className = 'card-subtitle';
     sub.style.fontSize = (s.subtitleFontSize || 14) + 'px';
+    if (s.subtitleFontFamily) sub.style.fontFamily = s.subtitleFontFamily;
+    if (s.subtitleColor) sub.style.color = s.subtitleColor;
     sub.textContent = comp.props.subtitle || '';
     if (!comp.props.subtitle) sub.style.display = 'none';
     body.appendChild(title); body.appendChild(sub);
@@ -1882,6 +1904,9 @@ function getTypeLabel(type) {
 
 function renderCardPropertyHTML(comp) {
     const s = comp.style; const p = comp.props;
+    const op = (s.backgroundOpacity != null) ? s.backgroundOpacity : 100;
+    const grad = s.backgroundGradient || '';
+    const shape = s.cardShape || 'default';
     return `
         <div class="property-section">
             <div class="property-section-title">內容</div>
@@ -1892,11 +1917,11 @@ function renderCardPropertyHTML(comp) {
             </div>
         </div>
         <div class="property-section">
-            <div class="property-section-title">字型與字級</div>
+            <div class="property-section-title">主標題字型</div>
             <div class="property-group"><label>字型</label><select id="prop-fontFamily">${fontFamilyOptions(s.fontFamily)}</select></div>
             <div class="property-row">
-                <div class="property-group"><label>主標字級</label><input type="number" id="prop-titleFontSize" value="${s.titleFontSize || 22}" min="8" max="80"></div>
-                <div class="property-group"><label>副標字級</label><input type="number" id="prop-subtitleFontSize" value="${s.subtitleFontSize || 14}" min="8" max="60"></div>
+                <div class="property-group"><label>字級</label><input type="number" id="prop-titleFontSize" value="${s.titleFontSize || 22}" min="8" max="80"></div>
+                <div class="property-group"><label>字色</label>${colorInput('prop-color', s.color || '#0f172a')}</div>
             </div>
             <div class="property-group"><label>對齊</label><select id="prop-textAlign">
                 <option value="left" ${s.textAlign === 'left' ? 'selected' : ''}>靠左</option>
@@ -1905,15 +1930,54 @@ function renderCardPropertyHTML(comp) {
             </select></div>
         </div>
         <div class="property-section">
-            <div class="property-section-title">顏色</div>
-            <div class="property-group"><label>文字顏色</label>${colorInput('prop-color', s.color || '#0f172a')}</div>
-            <div class="property-group"><label>底色</label>${colorInput('prop-backgroundColor', s.backgroundColor || '#ffffff')}</div>
-            <div class="property-group"><label>邊框顏色</label>${colorInput('prop-borderColor', s.borderColor || '#2563eb')}</div>
+            <div class="property-section-title">副標題字型</div>
+            <div class="property-group"><label>字型（留空＝同主標）</label><select id="prop-subtitleFontFamily">
+                <option value="" ${!s.subtitleFontFamily ? 'selected' : ''}>＝主標題字型</option>
+                ${fontFamilyOptions(s.subtitleFontFamily)}
+            </select></div>
+            <div class="property-row">
+                <div class="property-group"><label>字級</label><input type="number" id="prop-subtitleFontSize" value="${s.subtitleFontSize || 14}" min="8" max="60"></div>
+                <div class="property-group"><label>字色（留空＝同主文）</label>${colorInput('prop-subtitleColor', s.subtitleColor || s.color || '#0f172a')}</div>
+            </div>
         </div>
         <div class="property-section">
-            <div class="property-section-title">邊框與外觀</div>
+            <div class="property-section-title">背景</div>
+            <div class="property-group"><label>底色</label>${colorInput('prop-backgroundColor', s.backgroundColor || '#ffffff')}</div>
+            <div class="property-group">
+                <div class="opacity-slider-row">
+                    <span style="font-size:11px;color:var(--text-muted);min-width:36px;">透明度</span>
+                    <input type="range" id="prop-backgroundOpacity" class="opacity-slider" min="0" max="100" step="1" value="${op}">
+                    <span class="opacity-slider-value" id="prop-backgroundOpacity-value">${op}%</span>
+                </div>
+            </div>
+            <div class="property-group">
+                <label style="display:flex;align-items:center;justify-content:space-between;">
+                    <span>漸層快選</span>
+                    <button id="prop-clear-gradient" class="btn-mini-link" title="清除漸層、回到單色">清除漸層</button>
+                </label>
+                <div class="gradient-picker" id="prop-gradient-picker">
+                    ${CARD_GRADIENT_PRESETS.map((g, i) => `
+                        <button class="gradient-swatch ${grad === g.value ? 'active' : ''}" data-grad="${escapeAttr(g.value)}" title="${escapeAttr(g.label)}" style="background:${g.value};"></button>
+                    `).join('')}
+                </div>
+            </div>
+        </div>
+        <div class="property-section">
+            <div class="property-section-title">卡片形狀</div>
+            <div class="card-shape-grid" id="prop-card-shape-grid">
+                ${CARD_SHAPES.map(sh => `
+                    <button class="card-shape-btn ${shape === sh.value ? 'active' : ''}" data-shape="${sh.value}" title="${escapeAttr(sh.desc)}">
+                        <span class="card-shape-preview" data-preview-shape="${sh.value}"></span>
+                        <span class="card-shape-label">${sh.label}</span>
+                    </button>
+                `).join('')}
+            </div>
+        </div>
+        <div class="property-section">
+            <div class="property-section-title">邊框與陰影</div>
+            <div class="property-group"><label>邊框顏色</label>${colorInput('prop-borderColor', s.borderColor || '#2563eb')}</div>
             <div class="property-row">
-                <div class="property-group"><label>邊框粗細</label><input type="number" id="prop-borderWidth" value="${s.borderWidth != null ? s.borderWidth : 2}" min="0" max="20"></div>
+                <div class="property-group"><label>邊框粗細</label><input type="number" id="prop-borderWidth" value="${s.borderWidth != null ? s.borderWidth : 1}" min="0" max="20"></div>
                 <div class="property-group"><label>邊框樣式</label><select id="prop-borderStyle">
                     <option value="solid" ${s.borderStyle === 'solid' ? 'selected' : ''}>實線</option>
                     <option value="dashed" ${s.borderStyle === 'dashed' ? 'selected' : ''}>虛線</option>
@@ -1923,11 +1987,11 @@ function renderCardPropertyHTML(comp) {
                 </select></div>
             </div>
             <div class="property-row">
-                <div class="property-group"><label>圓角</label><input type="number" id="prop-borderRadius" value="${s.borderRadius != null ? s.borderRadius : 14}" min="0" max="60"></div>
+                <div class="property-group"><label>圓角</label><input type="number" id="prop-borderRadius" value="${s.borderRadius != null ? s.borderRadius : 16}" min="0" max="60"></div>
                 <div class="property-group"><label>內距</label><input type="number" id="prop-padding" value="${s.padding != null ? s.padding : 14}" min="0" max="60"></div>
             </div>
             <div class="property-group"><label>陰影</label><select id="prop-boxShadow">
-                <option value="" ${!s.boxShadow ? 'selected' : ''}>無</option>
+                <option value="" ${!s.boxShadow ? 'selected' : ''}>無（用卡片內建立體陰影）</option>
                 <option value="0 1px 3px rgba(0,0,0,0.06)" ${s.boxShadow === '0 1px 3px rgba(0,0,0,0.06)' ? 'selected' : ''}>輕微</option>
                 <option value="0 2px 6px rgba(0,0,0,0.08)" ${s.boxShadow === '0 2px 6px rgba(0,0,0,0.08)' ? 'selected' : ''}>淺</option>
                 <option value="0 4px 12px rgba(0,0,0,0.12)" ${s.boxShadow === '0 4px 12px rgba(0,0,0,0.12)' ? 'selected' : ''}>中</option>
@@ -1941,8 +2005,38 @@ function renderCardPropertyHTML(comp) {
                 <option value="topRight" ${s.tagPosition === 'topRight' ? 'selected' : ''}>右上角</option>
             </select></div>
             <div id="tag-checker"></div>
+        </div>
+        <div class="property-section">
+            <div class="property-section-title">預設樣式</div>
+            <div class="property-group" style="display:flex;gap:6px;flex-direction:column;">
+                <button id="prop-card-set-default" class="btn btn-small btn-set-default" title="把目前的字型/顏色/背景/形狀儲存為「新增課程類別卡」的預設值">⭐ 設定為預設</button>
+                <button id="prop-card-clear-default" class="btn btn-small" title="清除目前儲存的預設樣式">🗑️ 清除已存預設</button>
+                <small id="prop-card-default-status" style="color:var(--text-muted);font-size:11px;"></small>
+            </div>
         </div>`;
 }
+
+// 8 個漸層預設（取靈感自 awesome-design-md：Stripe / Notion / Claude / Cursor / Linear ...）
+const CARD_GRADIENT_PRESETS = [
+    { label: 'Stripe 紫', value: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' },
+    { label: 'Cursor 海洋藍', value: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)' },
+    { label: 'Lovable 日落橘', value: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)' },
+    { label: 'Wise 薄荷綠', value: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)' },
+    { label: 'Pinterest 玫瑰粉', value: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)' },
+    { label: 'Claude 暖陶土', value: 'linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%)' },
+    { label: 'Linear 暗夜紫', value: 'linear-gradient(135deg, #30cfd0 0%, #330867 100%)' },
+    { label: 'Notion 蜜桃', value: 'linear-gradient(135deg, #ffe8d4 0%, #fde0ec 100%)' }
+];
+
+// 6 種卡片形狀（取靈感自 design-md：default=Linear/Notion 混合、glass=Apple、tab=Notion、pill=Wise…）
+const CARD_SHAPES = [
+    { value: 'default', label: '經典', desc: '左側強調條 + 圓角矩形（預設，仿 Linear / Notion）' },
+    { value: 'tab', label: '頁籤', desc: '頂部色帶取代左側強調條（仿 Notion / Webflow）' },
+    { value: 'pill', label: '膠囊', desc: '大圓角膠囊形（仿 Wise / Stripe CTA）' },
+    { value: 'sharp', label: '銳角', desc: '直角矩形 + 髮絲邊（仿 WIRED / Vercel）' },
+    { value: 'glass', label: '玻璃', desc: '半透明 + 模糊背景（仿 Apple iOS）' },
+    { value: 'outlined', label: '線框', desc: '純邊框、無陰影、無漸層（仿 ClickHouse / Cohere）' }
+];
 
 function renderTextPropertyHTML(comp) {
     const s = comp.style; const p = comp.props;
@@ -2141,6 +2235,9 @@ function bindComponentPropertyEvents(comp) {
         bindInput('prop-fontFamily', (v) => { comp.style.fontFamily = v; renderCanvas(); scheduleSaveDraft(); });
         bindNumber('prop-titleFontSize', (v) => { comp.style.titleFontSize = v; renderCanvas(); scheduleSaveDraft(); });
         bindNumber('prop-subtitleFontSize', (v) => { comp.style.subtitleFontSize = v; renderCanvas(); scheduleSaveDraft(); });
+        // 副標題獨立樣式
+        bindInput('prop-subtitleFontFamily', (v) => { comp.style.subtitleFontFamily = v; renderCanvas(); scheduleSaveDraft(); });
+        syncColorPair('prop-subtitleColor', (v) => { comp.style.subtitleColor = v; renderCanvas(); scheduleSaveDraft(); });
         bindInput('prop-textAlign', (v) => { comp.style.textAlign = v; renderCanvas(); scheduleSaveDraft(); });
         bindNumber('prop-borderWidth', (v) => { comp.style.borderWidth = v; renderCanvas(); scheduleSaveDraft(); });
         bindInput('prop-borderStyle', (v) => { comp.style.borderStyle = v; renderCanvas(); scheduleSaveDraft(); });
@@ -2150,6 +2247,99 @@ function bindComponentPropertyEvents(comp) {
         bindInput('prop-tagPosition', (v) => { comp.style.tagPosition = v; renderCanvas(); scheduleSaveDraft(); });
         bindIfExists('btn-open-class-popup', 'click', () => openClassPopup(comp.id));
         renderTagChecker(comp);
+        // 改動底色或透明度時自動清除漸層（讓單色設定生效）
+        const clearGradOnSolidEdit = () => {
+            if (comp.style.backgroundGradient) {
+                comp.style.backgroundGradient = '';
+                const picker = document.getElementById('prop-gradient-picker');
+                if (picker) picker.querySelectorAll('.gradient-swatch').forEach(b => b.classList.remove('active'));
+                renderCanvas();
+                scheduleSaveDraft();
+            }
+        };
+        const bgPicker = document.getElementById('prop-backgroundColor');
+        const bgText = document.getElementById('prop-backgroundColor-text');
+        if (bgPicker) bgPicker.addEventListener('input', clearGradOnSolidEdit);
+        if (bgText) bgText.addEventListener('input', clearGradOnSolidEdit);
+        // 背景透明度
+        const opSlider = document.getElementById('prop-backgroundOpacity');
+        const opLabel = document.getElementById('prop-backgroundOpacity-value');
+        if (opSlider) {
+            opSlider.addEventListener('input', (e) => {
+                const v = parseInt(e.target.value, 10);
+                comp.style.backgroundOpacity = v;
+                if (opLabel) opLabel.textContent = v + '%';
+                clearGradOnSolidEdit();
+                renderCanvas(); scheduleSaveDraft();
+            });
+        }
+        // 漸層 quick pick
+        const gradPicker = document.getElementById('prop-gradient-picker');
+        if (gradPicker) {
+            gradPicker.querySelectorAll('.gradient-swatch').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const v = btn.dataset.grad || '';
+                    comp.style.backgroundGradient = v;
+                    gradPicker.querySelectorAll('.gradient-swatch').forEach(b => b.classList.toggle('active', b === btn));
+                    renderCanvas(); scheduleSaveDraft();
+                });
+            });
+        }
+        bindIfExists('prop-clear-gradient', 'click', () => {
+            comp.style.backgroundGradient = '';
+            const picker = document.getElementById('prop-gradient-picker');
+            if (picker) picker.querySelectorAll('.gradient-swatch').forEach(b => b.classList.remove('active'));
+            renderCanvas(); scheduleSaveDraft();
+        });
+        // 卡片形狀
+        const shapeGrid = document.getElementById('prop-card-shape-grid');
+        if (shapeGrid) {
+            shapeGrid.querySelectorAll('.card-shape-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    comp.style.cardShape = btn.dataset.shape || 'default';
+                    shapeGrid.querySelectorAll('.card-shape-btn').forEach(b => b.classList.toggle('active', b === btn));
+                    renderCanvas(); scheduleSaveDraft();
+                });
+            });
+        }
+        // 設為預設 / 清除預設
+        const status = document.getElementById('prop-card-default-status');
+        const updateStatus = () => {
+            if (!status) return;
+            const cur = AppStorage.Settings.getCardDefault && AppStorage.Settings.getCardDefault();
+            status.textContent = cur ? '✓ 已儲存使用者預設樣式' : '尚未儲存任何預設';
+        };
+        updateStatus();
+        bindIfExists('prop-card-set-default', 'click', () => {
+            const styleSnapshot = {
+                fontFamily: comp.style.fontFamily,
+                titleFontSize: comp.style.titleFontSize,
+                subtitleFontSize: comp.style.subtitleFontSize,
+                subtitleFontFamily: comp.style.subtitleFontFamily,
+                subtitleColor: comp.style.subtitleColor,
+                color: comp.style.color,
+                backgroundColor: comp.style.backgroundColor,
+                backgroundOpacity: comp.style.backgroundOpacity,
+                backgroundGradient: comp.style.backgroundGradient,
+                borderColor: comp.style.borderColor,
+                borderWidth: comp.style.borderWidth,
+                borderStyle: comp.style.borderStyle,
+                borderRadius: comp.style.borderRadius,
+                padding: comp.style.padding,
+                boxShadow: comp.style.boxShadow,
+                textAlign: comp.style.textAlign,
+                tagPosition: comp.style.tagPosition,
+                cardShape: comp.style.cardShape
+            };
+            AppStorage.Settings.setCardDefault(styleSnapshot);
+            updateStatus();
+            (typeof toast === 'function' ? toast : showToast)('已設定為新增課程類別卡的預設樣式', 'success');
+        });
+        bindIfExists('prop-card-clear-default', 'click', () => {
+            AppStorage.Settings.clearCardDefault();
+            updateStatus();
+            (typeof toast === 'function' ? toast : showToast)('已清除使用者預設樣式', 'info');
+        });
     }
     if (comp.type === 'text') {
         bindInput('prop-text', (v) => { comp.props.text = v; renderCanvas(); scheduleSaveDraft(); }, 'textarea');
@@ -5030,16 +5220,16 @@ async function exportHTML() {
 .viewer-toolbar-right { display: flex; gap: 8px; align-items: center; }
 .viewer-canvas-wrapper { width: 100vw; height: 100vh; overflow: auto; padding: 60px 20px 20px; box-sizing: border-box; background: var(--bg-canvas-outer); }
 
-/* 篩選面板（可摺疊） */
+/* 篩選面板（可摺疊，靠右） */
 .filter-panel {
-    position: fixed; top: 70px; left: 12px; bottom: 12px;
+    position: fixed; top: 70px; right: 12px; bottom: 12px;
     width: 320px; background: var(--bg-card); border: 1px solid var(--border);
     border-radius: 14px; box-shadow: var(--shadow-md);
     display: flex; flex-direction: column; z-index: 90;
     transform: translateX(0); transition: transform 0.3s ease, opacity 0.3s ease;
     overflow: hidden;
 }
-.filter-panel.collapsed { transform: translateX(-110%); opacity: 0; pointer-events: none; }
+.filter-panel.collapsed { transform: translateX(110%); opacity: 0; pointer-events: none; }
 .filter-panel-header {
     display: flex; align-items: center; justify-content: space-between;
     padding: 12px 14px; border-bottom: 1px solid var(--border);
@@ -5070,14 +5260,26 @@ async function exportHTML() {
 .filter-stats b { color: var(--primary, #6366f1); }
 
 .filter-toggle-btn {
-    position: fixed; top: 70px; left: 12px; z-index: 95;
-    width: 38px; height: 38px; border-radius: 50%;
-    background: var(--primary, #6366f1); color: #fff;
-    border: none; cursor: pointer; box-shadow: var(--shadow-md);
+    position: fixed; top: 70px; right: 12px; z-index: 95;
+    width: 42px; height: 42px; border-radius: 50%;
+    background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+    color: #fff;
+    border: none; cursor: pointer;
+    box-shadow:
+        0 2px 4px rgba(99,102,241,0.25),
+        0 4px 12px -2px rgba(99,102,241,0.35),
+        inset 0 1px 0 rgba(255,255,255,0.25);
     display: flex; align-items: center; justify-content: center;
-    font-size: 16px; transition: transform 0.2s, opacity 0.2s;
+    transition: transform 0.2s, opacity 0.2s, box-shadow 0.2s;
 }
-.filter-toggle-btn:hover { transform: scale(1.08); }
+.filter-toggle-btn:hover {
+    transform: scale(1.08);
+    box-shadow:
+        0 3px 6px rgba(99,102,241,0.3),
+        0 8px 18px -4px rgba(99,102,241,0.45),
+        inset 0 1px 0 rgba(255,255,255,0.3);
+}
+.filter-toggle-btn svg { width: 22px; height: 22px; display: block; }
 .filter-toggle-btn .badge {
     position: absolute; top: -4px; right: -4px;
     background: #ef4444; color: #fff; font-size: 10px; font-weight: 700;
@@ -5108,7 +5310,7 @@ async function exportHTML() {
 <button class="btn btn-small" id="z-fit" title="符合視窗寬度">符合視窗</button>
 <button class="btn btn-small" id="z-100">100%</button>
 </div></div>
-<button class="filter-toggle-btn" id="filter-toggle-btn" title="標籤篩選 (F)">🔍<span class="badge" id="filter-count-badge" style="display:none;">0</span></button>
+<button class="filter-toggle-btn" id="filter-toggle-btn" title="標籤篩選 (F)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg><span class="badge" id="filter-count-badge" style="display:none;">0</span></button>
 <aside class="filter-panel collapsed" id="filter-panel">
     <div class="filter-panel-header">
         <h3>🔍 標籤篩選</h3>
@@ -5182,17 +5384,32 @@ function buildViewerScript() {
         const s = comp.style || {};
         if (comp.type === 'course-category') {
             div.dataset.tagPosition = s.tagPosition || 'bottom';
-            div.style.background = s.backgroundColor; div.style.color = s.color;
+            div.dataset.cardShape = s.cardShape || 'default';
+            // 角色：主分類 / 子分類（用 connectors 偵測）
+            const hasIn = projectData.connectors.some(cn => cn.toComponentId === comp.id);
+            const hasOut = projectData.connectors.some(cn => cn.fromComponentId === comp.id);
+            if (!hasIn && hasOut) div.dataset.role = 'main';
+            else if (hasIn) div.dataset.role = 'sub';
+            div.style.setProperty('--card-accent', s.borderColor || '#6366f1');
+            // 背景：優先漸層 → 否則 color + opacity
+            if (s.backgroundGradient) div.style.background = s.backgroundGradient;
+            else div.style.background = composeBg(s.backgroundColor, s.backgroundOpacity != null ? s.backgroundOpacity : 100) || s.backgroundColor || '#ffffff';
+            div.style.color = s.color;
             div.style.borderColor = s.borderColor;
-            div.style.borderWidth = (s.borderWidth || 2) + 'px';
+            div.style.borderWidth = (s.borderWidth || 1) + 'px';
             div.style.borderStyle = s.borderStyle || 'solid';
-            div.style.borderRadius = (s.borderRadius || 14) + 'px';
+            const __shape = s.cardShape || 'default';
+            if (__shape === 'pill' || __shape === 'sharp') div.style.removeProperty('border-radius');
+            else div.style.borderRadius = (s.borderRadius || 16) + 'px';
             div.style.boxShadow = s.boxShadow || '';
             div.style.fontFamily = s.fontFamily || 'inherit';
             div.style.textAlign = s.textAlign || 'left';
             const body = document.createElement('div'); body.className = 'card-body'; body.style.padding = (s.padding || 14) + 'px';
             const title = document.createElement('div'); title.className = 'card-title'; title.style.fontSize = (s.titleFontSize || 22) + 'px'; title.textContent = comp.props.title || '';
-            const sub = document.createElement('div'); sub.className = 'card-subtitle'; sub.style.fontSize = (s.subtitleFontSize || 14) + 'px'; sub.textContent = comp.props.subtitle || '';
+            const sub = document.createElement('div'); sub.className = 'card-subtitle'; sub.style.fontSize = (s.subtitleFontSize || 14) + 'px';
+            if (s.subtitleFontFamily) sub.style.fontFamily = s.subtitleFontFamily;
+            if (s.subtitleColor) sub.style.color = s.subtitleColor;
+            sub.textContent = comp.props.subtitle || '';
             if (!comp.props.subtitle) sub.style.display = 'none';
             body.appendChild(title); body.appendChild(sub);
             const cls = (comp.props.classes || []);

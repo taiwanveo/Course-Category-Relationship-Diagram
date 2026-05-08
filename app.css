@@ -887,6 +887,166 @@ body {
         0 6px 16px -4px rgba(15, 23, 42, 0.10),
         0 18px 40px -10px rgba(15, 23, 42, 0.16);
 }
+
+/* =============================================
+   卡片形狀變體（取靈感自 awesome-design-md）
+   ============================================= */
+/* tab：頂部色帶取代左側強調條（仿 Notion / Webflow） */
+.component-card[data-card-shape="tab"]::before {
+    width: 100%;
+    height: 5px;
+    bottom: auto;
+    border-radius: 16px 16px 0 0;
+    box-shadow: inset 0 -1px 0 rgba(255,255,255,0.4);
+}
+.component-card[data-card-shape="tab"] .card-body { padding-left: 18px; }
+.component-card[data-card-shape="tab"][data-role="main"]::before { height: 7px; width: 100%; }
+
+/* pill：膠囊型大圓角（仿 Wise / Stripe CTA） */
+.component-card[data-card-shape="pill"] { border-radius: 9999px; }
+.component-card[data-card-shape="pill"]::before { border-radius: 9999px 0 0 9999px; }
+.component-card[data-card-shape="pill"] .card-body { padding-left: 28px; padding-right: 24px; }
+
+/* sharp：直角矩形 + 髮絲邊（仿 WIRED / Vercel） */
+.component-card[data-card-shape="sharp"] { border-radius: 0; }
+.component-card[data-card-shape="sharp"]::before { border-radius: 0; }
+
+/* glass：半透明 + 模糊背景（仿 Apple iOS frosted glass） */
+.component-card[data-card-shape="glass"] {
+    backdrop-filter: blur(14px) saturate(1.6);
+    -webkit-backdrop-filter: blur(14px) saturate(1.6);
+    border: 1px solid rgba(255,255,255,0.35);
+    box-shadow:
+        0 1px 0 rgba(255,255,255,0.4) inset,
+        0 0 0 1px rgba(255,255,255,0.1),
+        0 8px 32px -4px rgba(15, 23, 42, 0.18);
+}
+.component-card[data-card-shape="glass"] .card-body { background: linear-gradient(180deg, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0) 70%); }
+[data-theme="dark"] .component-card[data-card-shape="glass"] {
+    border-color: rgba(255,255,255,0.12);
+    box-shadow:
+        0 1px 0 rgba(255,255,255,0.06) inset,
+        0 0 0 1px rgba(255,255,255,0.04),
+        0 8px 32px -4px rgba(0,0,0,0.6);
+}
+
+/* outlined：純線框、無陰影、無漸層（仿 ClickHouse / Cohere 文件風格） */
+.component-card[data-card-shape="outlined"] {
+    box-shadow: none;
+    border-width: 1.5px;
+}
+.component-card[data-card-shape="outlined"]:hover {
+    transform: none;
+    box-shadow: 0 0 0 3px rgba(99,102,241,0.12);
+}
+.component-card[data-card-shape="outlined"] .card-body { background: transparent !important; }
+
+/* =============================================
+   屬性面板：漸層 swatch 與 卡片形狀按鈕
+   ============================================= */
+.gradient-picker {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+    margin-top: 4px;
+}
+.gradient-swatch {
+    height: 30px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.08), inset 0 0 0 1px rgba(255,255,255,0.4);
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
+    padding: 0;
+    position: relative;
+}
+.gradient-swatch:hover {
+    transform: translateY(-1px) scale(1.05);
+    box-shadow: 0 3px 8px rgba(0,0,0,0.18), inset 0 0 0 1px rgba(255,255,255,0.5);
+}
+.gradient-swatch.active {
+    box-shadow: 0 0 0 2px var(--bg-card), 0 0 0 4px var(--primary, #6366f1);
+}
+.gradient-swatch.active::after {
+    content: '✓';
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 14px; font-weight: 700;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+}
+
+.btn-mini-link {
+    background: none; border: none; padding: 0;
+    color: var(--primary, #6366f1); cursor: pointer;
+    font-size: 11px; font-weight: 500; text-decoration: underline;
+}
+.btn-mini-link:hover { color: var(--text-primary); }
+
+.card-shape-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+}
+.card-shape-btn {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    padding: 8px 4px;
+    background: var(--bg-card);
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+.card-shape-btn:hover { border-color: var(--primary, #6366f1); transform: translateY(-1px); }
+.card-shape-btn.active {
+    border-color: var(--primary, #6366f1);
+    background: rgba(99,102,241,0.06);
+    color: var(--primary, #6366f1);
+    font-weight: 600;
+}
+.card-shape-preview {
+    display: block;
+    width: 38px; height: 22px;
+    background: linear-gradient(180deg, #fff 0%, #f1f5f9 100%);
+    border: 1px solid #cbd5e1;
+    border-left: 4px solid #6366f1;
+    border-radius: 6px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+}
+.card-shape-preview[data-preview-shape="tab"] {
+    border-left: 1px solid #cbd5e1;
+    border-top: 4px solid #6366f1;
+}
+.card-shape-preview[data-preview-shape="pill"] {
+    border-radius: 9999px;
+    border-left: 4px solid #6366f1;
+}
+.card-shape-preview[data-preview-shape="sharp"] {
+    border-radius: 0;
+    border-left: 4px solid #6366f1;
+}
+.card-shape-preview[data-preview-shape="glass"] {
+    background: linear-gradient(135deg, rgba(99,102,241,0.18), rgba(236,72,153,0.18));
+    border: 1px solid rgba(255,255,255,0.6);
+    backdrop-filter: blur(2px);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+}
+.card-shape-preview[data-preview-shape="outlined"] {
+    background: transparent;
+    border: 1.5px solid #6366f1;
+    box-shadow: none;
+}
+.card-shape-label { font-size: 11px; }
+[data-theme="dark"] .card-shape-preview {
+    background: linear-gradient(180deg, #1f2937 0%, #111827 100%);
+    border-color: #374151;
+    border-left-color: #818cf8;
+}
+[data-theme="dark"] .card-shape-preview[data-preview-shape="tab"] {
+    border-left-color: #374151;
+    border-top-color: #818cf8;
+}
 [data-theme="dark"] .component-card {
     border-color: rgba(255, 255, 255, 0.08);
     box-shadow:
