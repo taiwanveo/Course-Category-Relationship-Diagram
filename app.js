@@ -5647,22 +5647,33 @@ function editorBuildFilterPanel() {
     const body = document.getElementById('editor-filter-body');
     if (!body || !projectData) return;
     body.innerHTML = '';
+    // 計算 usage：班名層 + 卡片層 assignedTags 都列入計次
     const usage = {};
     getAllCategoryKeys().forEach(cat => {
         usage[cat] = {};
         (projectData.tagLibrary[cat] || []).forEach(t => { usage[cat][t.name] = 0; });
         projectData.components.forEach(c => {
             if (c.type !== 'course-category') return;
+            // 班名層 (cl.tags[cat]：以 tag「名稱」存放)
             (c.props.classes || []).forEach(cl => {
                 (cl.tags && cl.tags[cat] || []).forEach(name => {
                     if (usage[cat][name] != null) usage[cat][name]++;
                     else usage[cat][name] = 1;
                 });
             });
+            // 卡片層 (assignedTags[cat]：以 tag「id」存放)
+            const at = (c.props.assignedTags && c.props.assignedTags[cat]) || [];
+            at.forEach(tagId => {
+                const t = findTagById(cat, tagId);
+                if (!t) return;
+                if (usage[cat][t.name] != null) usage[cat][t.name]++;
+                else usage[cat][t.name] = 1;
+            });
         });
     });
+    // 顯示全部已定義的類別與標籤（自訂類別即使尚未被任何班名使用也會顯示）
     getAllCategoryKeys().forEach(cat => {
-        const tags = (projectData.tagLibrary[cat] || []).filter(t => (usage[cat][t.name] || 0) > 0);
+        const tags = (projectData.tagLibrary[cat] || []);
         if (tags.length === 0) return;
         const sec = document.createElement('div');
         sec.className = 'filter-section';
@@ -6406,8 +6417,9 @@ async function exportHTML() {
 
 /* ===== 全螢幕模式 ===== */
 body.fullscreen-mode .viewer-toolbar { display: none !important; }
-body.fullscreen-mode .filter-toggle-btn { display: none; }
-body.fullscreen-mode .filter-panel { display: none; }
+/* 全螢幕模式仍顯示篩選 UI（篩選功能在展示時很實用） */
+body.fullscreen-mode .filter-toggle-btn { top: 12px; right: 12px; z-index: 9990; }
+body.fullscreen-mode .filter-panel { top: 12px; right: 12px; z-index: 9991; }
 body.fullscreen-mode .canvas-area { padding: 0 !important; }
 .exit-fullscreen-btn {
     display: none;
@@ -6962,23 +6974,33 @@ function buildViewerScript() {
         const body = document.getElementById('filter-body');
         if (!body) return;
         body.innerHTML = '';
-        // 計算每個標籤在班名中出現的次數
+        // 計算每個標籤在班名 + 卡片層 assignedTags 中出現的次數
         const usage = {};
         TAG_CATEGORY_KEYS.forEach(cat => {
             usage[cat] = {};
             (projectData.tagLibrary[cat] || []).forEach(t => { usage[cat][t.name] = 0; });
             projectData.components.forEach(c => {
                 if (c.type !== 'course-category') return;
+                // 班名層 (cl.tags[cat]：以 tag「名稱」存放)
                 (c.props.classes || []).forEach(cl => {
                     (cl.tags && cl.tags[cat] || []).forEach(name => {
                         if (usage[cat][name] != null) usage[cat][name]++;
                         else usage[cat][name] = 1;
                     });
                 });
+                // 卡片層 (assignedTags[cat]：以 tag「id」存放)
+                const at = (c.props.assignedTags && c.props.assignedTags[cat]) || [];
+                at.forEach(tagId => {
+                    const t = findTagById(cat, tagId);
+                    if (!t) return;
+                    if (usage[cat][t.name] != null) usage[cat][t.name]++;
+                    else usage[cat][t.name] = 1;
+                });
             });
         });
+        // 顯示全部已定義的類別與標籤（即使尚未使用），讓自訂類別不會缺席
         TAG_CATEGORY_KEYS.forEach(cat => {
-            const tags = (projectData.tagLibrary[cat] || []).filter(t => (usage[cat][t.name] || 0) > 0);
+            const tags = (projectData.tagLibrary[cat] || []);
             if (tags.length === 0) return;
             const sec = document.createElement('div');
             sec.className = 'filter-section';
@@ -7285,7 +7307,8 @@ function buildViewerScript() {
         document.body.classList.remove('has-doodle');
     }
     function fsZoomAtCursor(delta){
-        const outer = document.querySelector('.canvas-wrapper-outer') || document.querySelector('.canvas-area');
+        // 檢視器的 outer 是 #vw-outer（不是編輯器的 .canvas-wrapper-outer），這裡要用對 id
+        const outer = document.getElementById('vw-outer') || document.querySelector('.canvas-wrapper-outer') || document.querySelector('.canvas-area');
         if (!outer) return;
         const r = outer.getBoundingClientRect();
         const relX = Math.max(0, Math.min(r.width, fsCursorX - r.left));
