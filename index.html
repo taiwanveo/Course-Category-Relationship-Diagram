@@ -169,6 +169,28 @@
                 <!-- 全螢幕退出提示（只在 fullscreen-mode 顯示） -->
                 <button id="btn-exit-fullscreen" class="exit-fullscreen-btn" title="退出全螢幕（Esc）">✕ 退出全螢幕</button>
 
+                <!-- 全螢幕模式：標籤篩選按鈕（只在 fullscreen-mode 顯示） -->
+                <button id="editor-filter-toggle" class="filter-toggle-btn" title="標籤篩選（F）">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                    <span class="badge" id="editor-filter-count-badge" style="display:none;">0</span>
+                </button>
+
+                <!-- 全螢幕模式：標籤篩選面板（只在 fullscreen-mode 顯示） -->
+                <aside id="editor-filter-panel" class="filter-panel collapsed">
+                    <div class="filter-panel-header">
+                        <h3>🔍 標籤篩選</h3>
+                        <div style="display:flex;gap:6px;">
+                            <button class="btn btn-small" id="editor-filter-clear" title="清除全部篩選">清除</button>
+                            <button class="btn btn-small" id="editor-filter-close" title="關閉面板">✕</button>
+                        </div>
+                    </div>
+                    <div class="filter-panel-body" id="editor-filter-body"></div>
+                    <div class="filter-panel-footer">
+                        <span class="filter-stats" id="editor-filter-stats">顯示全部</span>
+                        <span style="font-size:11px;color:var(--text-muted);">同類別=任一即可<br>跨類別=須全部符合</span>
+                    </div>
+                </aside>
+
                 <!-- 全螢幕模式：塗鴉畫布（覆蓋整個視窗，僅在畫筆模式時接收事件） -->
                 <canvas id="fs-doodle-canvas" class="fs-doodle-canvas"></canvas>
 
@@ -384,6 +406,7 @@
                         <li><kbd>Ctrl</kbd> + <kbd>C</kbd> / <kbd>V</kbd> → 複製／貼上</li>
                         <li><kbd>Ctrl</kbd> + <kbd>G</kbd> → 建立群組</li>
                         <li><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>G</kbd> → 解除群組</li>
+                        <li><kbd>F</kbd> → 開啟／關閉標籤篩選面板（僅全螢幕模式）</li>
                     </ul>
                 </div>
                 <div class="modal-section">

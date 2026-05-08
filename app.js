@@ -609,6 +609,7 @@ function setupEventListeners() {
     setupShortcutsHelpModal();
     setupMinimap();
     setupFullscreenToolbar();
+    setupEditorFilterUI();
 
     // 預設 hover preview 隱藏
     document.getElementById('hover-preview').addEventListener('mouseenter', () => hideHoverPreview());
@@ -786,7 +787,20 @@ function handleKeyDown(e) {
     const tag = (e.target.tagName || '').toUpperCase();
     if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
     if (e.key === 'Escape') {
-        if (document.body.classList.contains('fullscreen-mode')) { exitFullscreenMode(); e.preventDefault(); return; }
+        // 全螢幕模式下，若篩選面板開著 → 先關閉面板（不退出全螢幕）
+        if (document.body.classList.contains('fullscreen-mode')) {
+            const fp = document.getElementById('editor-filter-panel');
+            if (fp && !fp.classList.contains('collapsed')) {
+                fp.classList.add('collapsed');
+                const btn = document.getElementById('editor-filter-toggle');
+                if (btn) { btn.style.opacity = '1'; btn.style.pointerEvents = 'auto'; }
+                e.preventDefault();
+                return;
+            }
+            exitFullscreenMode();
+            e.preventDefault();
+            return;
+        }
         if (connectorMode) { exitConnectorMode(); e.preventDefault(); return; }
         hideContextMenu();
         deselectAll();
@@ -936,6 +950,10 @@ function renderCanvas() {
     }
     // 同步 minimap
     if (typeof renderMinimap === 'function') renderMinimap();
+    // 重新套用篩選（renderCanvas 會清掉 .filter-dimmed/.filter-hit）
+    if (typeof editorApplyFilter === 'function' && typeof editorHasAnyFilter === 'function' && editorHasAnyFilter()) {
+        editorApplyFilter();
+    }
 }
 
 // ============================================================
@@ -954,6 +972,8 @@ function enterFullscreenMode() {
         }
     } catch (e) {}
     if (typeof resizeFsDoodleCanvas === 'function') resizeFsDoodleCanvas();
+    // 進入全螢幕：先準備好篩選面板內容（之後使用者點按鈕才不會空白）
+    if (typeof editorBuildFilterPanel === 'function') editorBuildFilterPanel();
     setTimeout(() => {
         try { fitZoom(); } catch (e) {}
         updateMinimapViewport && updateMinimapViewport();
@@ -966,6 +986,13 @@ function exitFullscreenMode() {
     document.body.classList.remove('fs-drawing');
     document.body.classList.remove('has-doodle');
     if (typeof clearFsDoodle === 'function') clearFsDoodle();
+    // 退出全螢幕：自動關閉並清除篩選面板（避免回到一般模式時有 dim 的卡片）
+    const fp = document.getElementById('editor-filter-panel');
+    if (fp) fp.classList.add('collapsed');
+    if (typeof editorActiveFilters !== 'undefined') {
+        getAllCategoryKeys().forEach(cat => editorActiveFilters[cat] = []);
+        if (typeof editorApplyFilter === 'function') editorApplyFilter();
+    }
     try {
         if (document.fullscreenElement && document.exitFullscreen) {
             document.exitFullscreen().catch(() => {});
@@ -5487,6 +5514,232 @@ function buildSubCategoryRow(child) {
 
     return row;
 }
+
+// ============================================================
+// 編輯器：標籤篩選（僅全螢幕模式可用，行為與匯出 HTML 檢視器一致）
+// ============================================================
+const editorActiveFilters = {};
+let editorFilteredView = null;
+
+function editorHasAnyFilter() {
+    return getAllCategoryKeys().some(cat => (editorActiveFilters[cat] || []).length > 0);
+}
+
+function editorClassMatchesFilter(cls) {
+    const cats = getAllCategoryKeys();
+    for (let i = 0; i < cats.length; i++) {
+        const cat = cats[i];
+        const sel = editorActiveFilters[cat] || [];
+        if (sel.length === 0) continue;
+        const ct = (cls.tags && cls.tags[cat]) || [];
+        const hit = sel.some(name => ct.indexOf(name) >= 0);
+        if (!hit) return false;
+    }
+    return true;
+}
+
+function editorCardLevelMatchesFilter(comp) {
+    const cats = getAllCategoryKeys();
+    for (let i = 0; i < cats.length; i++) {
+        const cat = cats[i];
+        const sel = editorActiveFilters[cat] || [];
+        if (sel.length === 0) continue;
+        const tagIds = (comp.props && comp.props.assignedTags && comp.props.assignedTags[cat]) || [];
+        const tagNames = tagIds.map(id => { const t = findTagById(cat, id); return t ? t.name : null; }).filter(Boolean);
+        const hit = sel.some(name => tagNames.indexOf(name) >= 0);
+        if (!hit) return false;
+    }
+    return true;
+}
+
+function editorComputeFilteredView() {
+    if (!editorHasAnyFilter() || !projectData) { editorFilteredView = null; return; }
+    const visibleCardIds = new Set();
+    const classMatchMap = {};
+    let totalClasses = 0, matchedClasses = 0;
+    projectData.components.forEach(c => {
+        if (c.type !== 'course-category') return;
+        const cls = c.props.classes || [];
+        totalClasses += cls.length;
+        const hits = cls.filter(editorClassMatchesFilter);
+        classMatchMap[c.id] = hits;
+        matchedClasses += hits.length;
+        if (hits.length > 0) visibleCardIds.add(c.id);
+        else if (cls.length === 0 && editorCardLevelMatchesFilter(c)) visibleCardIds.add(c.id);
+        else if (cls.length === 0) { /* 無班名：留待祖先傳播 */ }
+        else if (editorCardLevelMatchesFilter(c)) visibleCardIds.add(c.id);
+    });
+    // 向上傳播：子卡符合 → 祖先也標為可見
+    const parentOf = {};
+    projectData.connectors.forEach(c => { parentOf[c.toComponentId] = c.fromComponentId; });
+    const expanded = new Set(visibleCardIds);
+    visibleCardIds.forEach(id => {
+        let cur = parentOf[id];
+        while (cur && !expanded.has(cur)) { expanded.add(cur); cur = parentOf[cur]; }
+    });
+    editorFilteredView = { visibleCardIds: expanded, classMatchMap, totalClasses, matchedClasses };
+}
+
+function editorApplyFilter() {
+    editorComputeFilteredView();
+    const container = document.getElementById('canvas');
+    if (!container) return;
+    if (!editorFilteredView) {
+        document.body.classList.remove('filter-active');
+        container.querySelectorAll('.component').forEach(el => el.classList.remove('filter-dimmed', 'filter-hit'));
+        document.querySelectorAll('.connector-path').forEach(el => el.classList.remove('filter-dimmed'));
+        const stats = document.getElementById('editor-filter-stats');
+        if (stats) stats.innerHTML = '顯示全部';
+        editorUpdateFilterBadge(0);
+        return;
+    }
+    document.body.classList.add('filter-active');
+    const visible = editorFilteredView.visibleCardIds;
+    container.querySelectorAll('.component').forEach(el => {
+        const id = el.dataset.componentId;
+        if (!id) return;
+        const comp = getComponent(id);
+        if (!comp) return;
+        if (comp.type !== 'course-category') {
+            el.classList.remove('filter-dimmed', 'filter-hit');
+            return;
+        }
+        if (visible.has(id)) {
+            const hits = (editorFilteredView.classMatchMap[id] || []).length;
+            el.classList.remove('filter-dimmed');
+            if (hits > 0 || editorCardLevelMatchesFilter(comp)) el.classList.add('filter-hit');
+            else el.classList.remove('filter-hit');
+        } else {
+            el.classList.add('filter-dimmed');
+            el.classList.remove('filter-hit');
+        }
+    });
+    // 連線：兩端可見才不 dim
+    const group = document.getElementById('connector-group');
+    if (group) {
+        const paths = group.querySelectorAll('path.connector-path');
+        let pi = 0;
+        projectData.connectors.forEach(conn => {
+            const path = paths[pi++];
+            if (!path) return;
+            const fComp = getComponent(conn.fromComponentId);
+            const tComp = getComponent(conn.toComponentId);
+            const fOk = !fComp || fComp.type !== 'course-category' || visible.has(conn.fromComponentId);
+            const tOk = !tComp || tComp.type !== 'course-category' || visible.has(conn.toComponentId);
+            if (fOk && tOk) path.classList.remove('filter-dimmed');
+            else path.classList.add('filter-dimmed');
+        });
+    }
+    const stats = document.getElementById('editor-filter-stats');
+    if (stats) stats.innerHTML = '顯示班名 <b>' + editorFilteredView.matchedClasses + '</b> / ' + editorFilteredView.totalClasses + '，類別卡片 <b>' + visible.size + '</b>';
+    const totalActive = getAllCategoryKeys().reduce((s, cat) => s + (editorActiveFilters[cat] || []).length, 0);
+    editorUpdateFilterBadge(totalActive);
+}
+
+function editorUpdateFilterBadge(n) {
+    const b = document.getElementById('editor-filter-count-badge');
+    if (!b) return;
+    if (n > 0) { b.textContent = String(n); b.style.display = 'inline-block'; }
+    else b.style.display = 'none';
+}
+
+function editorBuildFilterPanel() {
+    const body = document.getElementById('editor-filter-body');
+    if (!body || !projectData) return;
+    body.innerHTML = '';
+    const usage = {};
+    getAllCategoryKeys().forEach(cat => {
+        usage[cat] = {};
+        (projectData.tagLibrary[cat] || []).forEach(t => { usage[cat][t.name] = 0; });
+        projectData.components.forEach(c => {
+            if (c.type !== 'course-category') return;
+            (c.props.classes || []).forEach(cl => {
+                (cl.tags && cl.tags[cat] || []).forEach(name => {
+                    if (usage[cat][name] != null) usage[cat][name]++;
+                    else usage[cat][name] = 1;
+                });
+            });
+        });
+    });
+    getAllCategoryKeys().forEach(cat => {
+        const tags = (projectData.tagLibrary[cat] || []).filter(t => (usage[cat][t.name] || 0) > 0);
+        if (tags.length === 0) return;
+        const sec = document.createElement('div');
+        sec.className = 'filter-section';
+        const title = document.createElement('div');
+        title.className = 'filter-section-title';
+        title.textContent = getCategoryLabel(cat) + ' (' + tags.length + ')';
+        sec.appendChild(title);
+        const chips = document.createElement('div');
+        chips.className = 'filter-chips';
+        tags.forEach(t => {
+            const chip = document.createElement('span');
+            chip.className = 'filter-chip';
+            const isActive = (editorActiveFilters[cat] || []).indexOf(t.name) >= 0;
+            if (isActive) {
+                chip.classList.add('active');
+                chip.style.background = t.color;
+                chip.style.borderColor = t.color;
+            } else {
+                chip.style.borderColor = t.color;
+                chip.style.color = t.color;
+            }
+            chip.innerHTML = escapeHtml(t.name) + '<span class="chip-count">' + (usage[cat][t.name] || 0) + '</span>';
+            chip.addEventListener('click', () => {
+                if (!editorActiveFilters[cat]) editorActiveFilters[cat] = [];
+                const arr = editorActiveFilters[cat];
+                const idx = arr.indexOf(t.name);
+                if (idx >= 0) arr.splice(idx, 1); else arr.push(t.name);
+                editorBuildFilterPanel();
+                editorApplyFilter();
+            });
+            chips.appendChild(chip);
+        });
+        sec.appendChild(chips);
+        body.appendChild(sec);
+    });
+    if (!body.children.length) {
+        body.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:20px;text-align:center;">尚無班名標籤可篩選</div>';
+    }
+}
+
+function setupEditorFilterUI() {
+    getAllCategoryKeys().forEach(k => { if (!editorActiveFilters[k]) editorActiveFilters[k] = []; });
+    const btn = document.getElementById('editor-filter-toggle');
+    const panel = document.getElementById('editor-filter-panel');
+    if (!btn || !panel) return;
+    const syncBtn = () => {
+        const open = !panel.classList.contains('collapsed');
+        btn.style.opacity = open ? '0' : '1';
+        btn.style.pointerEvents = open ? 'none' : 'auto';
+    };
+    btn.addEventListener('click', () => {
+        editorBuildFilterPanel();
+        panel.classList.toggle('collapsed');
+        syncBtn();
+    });
+    document.getElementById('editor-filter-close').addEventListener('click', () => {
+        panel.classList.add('collapsed');
+        syncBtn();
+    });
+    document.getElementById('editor-filter-clear').addEventListener('click', () => {
+        getAllCategoryKeys().forEach(cat => editorActiveFilters[cat] = []);
+        editorBuildFilterPanel();
+        editorApplyFilter();
+    });
+    // F 鍵切換（僅在全螢幕模式且非輸入框焦點）
+    document.addEventListener('keydown', (e) => {
+        if (!document.body.classList.contains('fullscreen-mode')) return;
+        const tag = (e.target.tagName || '').toUpperCase();
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
+        if (e.key === 'f' || e.key === 'F') {
+            // 避免攔到瀏覽器內建 Find；僅當 panel 存在時觸發
+            e.preventDefault();
+            btn.click();
+        }
+    });
+}
+
 function setupShortcutsHelpModal() {
     const overlay = document.getElementById('shortcuts-help-overlay');
     const open = () => { overlay.style.display = 'flex'; };
