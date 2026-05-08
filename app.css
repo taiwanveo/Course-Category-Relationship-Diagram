@@ -2727,6 +2727,55 @@ body.fullscreen-mode .minimap { right: 16px; bottom: 16px; z-index: 9998; }
 }
 
 /* =============================================
+   元件右下角的「屬性」小按鈕（編輯器專用）
+   ============================================= */
+.comp-prop-btn {
+    position: absolute;
+    right: 4px;
+    bottom: 4px;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: rgba(99, 102, 241, 0.85);
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow:
+        0 1px 3px rgba(0,0,0,0.18),
+        0 0 0 1.5px rgba(255,255,255,0.85);
+    opacity: 0;
+    transform: scale(0.85);
+    transition: opacity 0.15s ease, transform 0.12s ease, background 0.12s;
+    z-index: 30;
+}
+.comp-prop-btn svg { width: 11px; height: 11px; display: block; }
+/* hover 元件時顯示按鈕；元件被選中或屬性按鈕本身被 hover 也保持顯示 */
+.component:hover .comp-prop-btn,
+.component.selected .comp-prop-btn,
+.comp-prop-btn:hover,
+.comp-prop-btn:focus-visible {
+    opacity: 1;
+    transform: scale(1);
+}
+.comp-prop-btn:hover {
+    background: rgba(79, 70, 229, 1);
+    transform: scale(1.12);
+}
+[data-theme="dark"] .comp-prop-btn {
+    background: rgba(129, 140, 248, 0.9);
+    box-shadow:
+        0 1px 3px rgba(0,0,0,0.5),
+        0 0 0 1.5px rgba(15,23,42,0.6);
+}
+/* 匯出 PNG/PDF 時用此 class 暫時隱藏編輯器專用 UI */
+.exporting-snapshot .editor-only,
+.exporting-snapshot .comp-prop-btn { display: none !important; }
+
+/* =============================================
    全螢幕模式：跟隨游標的浮動工具列 + 塗鴉畫布
    ============================================= */
 
@@ -2746,7 +2795,7 @@ body.fullscreen-mode.fs-pen-active .fs-doodle-canvas {
     cursor: crosshair;
 }
 
-/* 跟隨游標的工具列 */
+/* 可拖曳的浮動工具列：預設半透明，hover 變不透明 */
 .fs-cursor-toolbar {
     position: fixed;
     top: 0; left: 0;
@@ -2762,18 +2811,22 @@ body.fullscreen-mode.fs-pen-active .fs-doodle-canvas {
         0 16px 32px -8px rgba(0,0,0,0.55);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    transition: opacity 0.18s ease, transform 0.12s ease-out;
+    transition: opacity 0.18s ease;
     transform: translate(0, 0);
     will-change: transform;
     user-select: none;
     pointer-events: auto;
-    opacity: 0.92;
+    cursor: grab;
+    /* 預設透明度 30% */
+    opacity: 0.3;
 }
 body.fullscreen-mode .fs-cursor-toolbar { display: inline-flex; }
-.fs-cursor-toolbar:hover { opacity: 1; }
+/* 滑鼠移上去 → 透明度瞬間 100% */
+.fs-cursor-toolbar:hover { opacity: 1; transition: opacity 0.05s ease-out; }
+.fs-cursor-toolbar.dragging { cursor: grabbing; opacity: 1; }
 
-/* 塗鴉中時：工具列稍微隱藏（不擋畫筆） */
-body.fullscreen-mode.fs-drawing .fs-cursor-toolbar { opacity: 0.3; pointer-events: none; }
+/* 塗鴉中時：工具列大幅淡出（不擋畫筆），但仍可被 hover 喚醒 */
+body.fullscreen-mode.fs-drawing .fs-cursor-toolbar { opacity: 0.15; pointer-events: none; }
 
 .fs-tool-btn {
     width: 32px; height: 32px;

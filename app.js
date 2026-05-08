@@ -1042,33 +1042,59 @@ function setupFullscreenToolbar() {
     const canvas = document.getElementById('fs-doodle-canvas');
     if (!bar || !canvas) return;
 
-    // 跟隨游標：節流（每 16ms 更新一次）
-    let lastUpdate = 0;
-    let pinned = false; // 滑鼠在工具列上時不跟隨
-    function placeBar(cx, cy) {
-        const w = bar.offsetWidth || 280;
-        const h = bar.offsetHeight || 44;
-        let x = cx + 24;
-        let y = cy + 24;
-        if (x + w > window.innerWidth - 8) x = cx - w - 24;
-        if (y + h > window.innerHeight - 8) y = cy - h - 24;
-        x = Math.max(8, x);
-        y = Math.max(8, y);
-        bar.style.transform = `translate(${x}px, ${y}px)`;
-    }
+    // 追蹤滑鼠位置（給「以游標為中心縮放」用）
     document.addEventListener('mousemove', (e) => {
         fsCursorX = e.clientX;
         fsCursorY = e.clientY;
-        if (!document.body.classList.contains('fullscreen-mode')) return;
-        if (pinned) return;
-        const now = performance.now();
-        if (now - lastUpdate < 16) return;
-        lastUpdate = now;
-        placeBar(e.clientX, e.clientY);
     }, { passive: true });
 
-    bar.addEventListener('mouseenter', () => { pinned = true; });
-    bar.addEventListener('mouseleave', () => { pinned = false; });
+    // 浮動工具列位置（可拖曳；存到 localStorage）
+    const FS_BAR_LS = 'ccrd:fs-toolbar-pos';
+    function placeBar(x, y) {
+        const w = bar.offsetWidth || 280;
+        const h = bar.offsetHeight || 44;
+        x = Math.max(8, Math.min(window.innerWidth - w - 8, x));
+        y = Math.max(8, Math.min(window.innerHeight - h - 8, y));
+        bar.style.transform = 'translate(' + x + 'px, ' + y + 'px)';
+        return { x, y };
+    }
+    function restoreBarPosition() {
+        let pos = null;
+        try { const v = localStorage.getItem(FS_BAR_LS); if (v) pos = JSON.parse(v); } catch(e){}
+        if (!pos || typeof pos.x !== 'number') {
+            // 預設：底部置中
+            const w = bar.offsetWidth || 280;
+            pos = { x: Math.round((window.innerWidth - w) / 2), y: window.innerHeight - 80 };
+        }
+        placeBar(pos.x, pos.y);
+    }
+    restoreBarPosition();
+    window.addEventListener('resize', () => {
+        // 視窗縮放後重新夾住，避免跑出視窗
+        const r = bar.getBoundingClientRect();
+        placeBar(r.left, r.top);
+    });
+
+    // 拖曳：在「非按鈕、非色票」區域 mousedown 即啟動拖曳
+    let drag = null;
+    bar.addEventListener('mousedown', (e) => {
+        if (e.target.closest('.fs-tool-btn, .fs-color-swatch')) return;
+        const r = bar.getBoundingClientRect();
+        drag = { sx: e.clientX, sy: e.clientY, ox: r.left, oy: r.top };
+        bar.classList.add('dragging');
+        e.preventDefault();
+    });
+    window.addEventListener('mousemove', (e) => {
+        if (!drag) return;
+        placeBar(drag.ox + e.clientX - drag.sx, drag.oy + e.clientY - drag.sy);
+    });
+    window.addEventListener('mouseup', () => {
+        if (!drag) return;
+        bar.classList.remove('dragging');
+        const r = bar.getBoundingClientRect();
+        try { localStorage.setItem(FS_BAR_LS, JSON.stringify({ x: r.left, y: r.top })); } catch(e){}
+        drag = null;
+    });
 
     // 點擊工具按鈕
     bar.querySelectorAll('.fs-tool-btn').forEach(btn => {
@@ -1149,9 +1175,6 @@ function setupFullscreenToolbar() {
     window.addEventListener('resize', () => {
         if (document.body.classList.contains('fullscreen-mode')) resizeFsDoodleCanvas();
     });
-
-    // 初始置中（避免一進入時跳到角落）
-    placeBar(window.innerWidth / 2, window.innerHeight / 2);
 }
 
 // ============================================================
@@ -1375,9 +1398,22 @@ function addComponent(type) {
     if (type === 'image') setTimeout(() => document.getElementById('file-image').click(), 30);
 }
 function placeNewComponent(comp) {
+    // 預設放在「目前可視範圍中心」，便於使用者立即看到新元件
+    const outer = document.getElementById('canvas-wrapper-outer');
+    let cx, cy;
+    if (outer && outer.clientWidth > 0) {
+        const z = (typeof viewportZoom === 'number') ? viewportZoom : 1;
+        cx = (outer.scrollLeft + outer.clientWidth / 2) / z;
+        cy = (outer.scrollTop + outer.clientHeight / 2) / z;
+    } else {
+        // fallback：畫布幾何中心
+        cx = projectData.board.w / 2;
+        cy = projectData.board.h / 2;
+    }
+    // 多次新增同類型時加上漸進偏移避免完全重疊（24px 一階，循環 8 次）
     const offset = (projectData.components.length % 8) * 24;
-    comp.x = Math.max(40, Math.min(projectData.board.w - comp.w - 40, comp.x + offset));
-    comp.y = Math.max(40, Math.min(projectData.board.h - comp.h - 40, comp.y + offset));
+    comp.x = Math.max(0, Math.min(projectData.board.w - comp.w, Math.round(cx - comp.w / 2 + offset)));
+    comp.y = Math.max(0, Math.min(projectData.board.h - comp.h, Math.round(cy - comp.h / 2 + offset)));
     comp.zIndex = nextTopZIndex();
     projectData.components.push(comp);
     renderCanvas();
@@ -1563,7 +1599,36 @@ function createComponentElement(comp) {
     if (selectedComponentIds && selectedComponentIds.size === 1 && comp.id === selectedComponentId && !comp.locked) {
         addResizeHandles(div, comp);
     }
+    addPropertyButton(div, comp);
     return div;
+}
+
+// 元件右下角的小型「屬性」按鈕（只在編輯器顯示，匯出時不會渲染）
+function addPropertyButton(div, comp) {
+    const btn = document.createElement('button');
+    btn.className = 'comp-prop-btn editor-only';
+    btn.title = '開啟屬性面板';
+    btn.setAttribute('aria-label', '開啟屬性面板');
+    btn.tabIndex = -1;
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="8.5" r="0.6" fill="currentColor"/><line x1="12" y1="11.5" x2="12" y2="16.5"/></svg>';
+    // 阻止冒泡以免又觸發畫布的選取／拖曳邏輯
+    btn.addEventListener('mousedown', (e) => { e.stopPropagation(); });
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        // 若此元件已在多選範圍中 → 保持多選並開啟「批次屬性面板」
+        if (selectedComponentIds && selectedComponentIds.size > 1 && selectedComponentIds.has(comp.id)) {
+            renderMultiSelectPropertyPanel();
+        } else {
+            // 否則切換為單選此元件並開啟屬性面板
+            selectedComponentIds = new Set([comp.id]);
+            selectedComponentId = comp.id;
+            refreshSelectionVisuals();
+            updatePropertyPanel(comp);
+        }
+        showPropertyPanel();
+    });
+    div.appendChild(btn);
 }
 
 function renderCategoryCard(div, comp) {
@@ -1997,14 +2062,17 @@ function selectComponent(id, opts) {
         selectedComponentId = id;
     }
     refreshSelectionVisuals();
-    // property panel：單選顯示元件屬性，多選顯示「N 個元件已選取」
+    // property panel：只「更新內容」，不自動展開（要點元件右下角的屬性按鈕才會展開）
+    const sb = document.getElementById('sidebar-right');
+    const panelOpen = sb && sb.classList.contains('visible');
     if (selectedComponentIds.size === 1) {
         const comp = getComponent(selectedComponentId);
         updatePropertyPanel(comp);
-        showPropertyPanel();
+        // 若使用者已經有開啟屬性面板，切換不同元件時保持開啟
+        if (panelOpen) showPropertyPanel();
     } else if (selectedComponentIds.size > 1) {
         renderMultiSelectPropertyPanel();
-        showPropertyPanel();
+        if (panelOpen) showPropertyPanel();
     } else {
         updatePropertyPanel(null);
         hidePropertyPanel();
@@ -2017,12 +2085,14 @@ function selectComponents(ids) {
     selectedComponentIds = new Set(ids);
     selectedComponentId = ids.length > 0 ? ids[ids.length - 1] : null;
     refreshSelectionVisuals();
+    const sb = document.getElementById('sidebar-right');
+    const panelOpen = sb && sb.classList.contains('visible');
     if (selectedComponentIds.size === 1) {
         updatePropertyPanel(getComponent(selectedComponentId));
-        showPropertyPanel();
+        if (panelOpen) showPropertyPanel();
     } else if (selectedComponentIds.size > 1) {
         renderMultiSelectPropertyPanel();
-        showPropertyPanel();
+        if (panelOpen) showPropertyPanel();
     } else {
         updatePropertyPanel(null);
         hidePropertyPanel();
@@ -5676,6 +5746,7 @@ async function exportPNG(opt) {
         const target = document.getElementById('canvas');
         const prev = target.style.transform;
         target.style.transform = 'scale(1)';
+        document.body.classList.add('exporting-snapshot');
         document.querySelectorAll('.resize-handle').forEach(h => h.style.display = 'none');
         document.querySelectorAll('.component.selected').forEach(el => el.classList.remove('selected'));
         document.querySelectorAll('.connector-path.selected').forEach(el => el.classList.remove('selected'));
@@ -5689,6 +5760,7 @@ async function exportPNG(opt) {
         }
         const canvas = await html2canvas(target, opts);
         target.style.transform = prev;
+        document.body.classList.remove('exporting-snapshot');
         document.querySelectorAll('.resize-handle').forEach(h => h.style.display = '');
         document.querySelectorAll('.waypoint-handle').forEach(el => el.style.display = '');
         if (selectedComponentId) selectComponent(selectedComponentId);
@@ -5700,6 +5772,7 @@ async function exportPNG(opt) {
         toast('已匯出 PNG', 'success');
     } catch (err) {
         console.error(err); toast('匯出 PNG 失敗：' + err.message, 'error');
+        document.body.classList.remove('exporting-snapshot');
         document.querySelectorAll('.resize-handle').forEach(h => h.style.display = '');
         document.querySelectorAll('.waypoint-handle').forEach(el => el.style.display = '');
     }
@@ -5712,11 +5785,13 @@ async function exportPDF() {
         const target = document.getElementById('canvas');
         const prev = target.style.transform;
         target.style.transform = 'scale(1)';
+        document.body.classList.add('exporting-snapshot');
         document.querySelectorAll('.resize-handle').forEach(h => h.style.display = 'none');
         document.querySelectorAll('.component.selected').forEach(el => el.classList.remove('selected'));
         document.querySelectorAll('.waypoint-handle').forEach(el => el.style.display = 'none');
         const canvas = await html2canvas(target, { backgroundColor: projectData.board.background.baseColor || '#ffffff', scale: 2, useCORS: true });
         target.style.transform = prev;
+        document.body.classList.remove('exporting-snapshot');
         document.querySelectorAll('.resize-handle').forEach(h => h.style.display = '');
         document.querySelectorAll('.waypoint-handle').forEach(el => el.style.display = '');
         if (selectedComponentId) selectComponent(selectedComponentId);
@@ -5729,6 +5804,7 @@ async function exportPDF() {
         toast('已匯出 PDF', 'success');
     } catch (err) {
         console.error(err); toast('匯出 PDF 失敗：' + err.message, 'error');
+        document.body.classList.remove('exporting-snapshot');
         document.querySelectorAll('.resize-handle').forEach(h => h.style.display = '');
         document.querySelectorAll('.waypoint-handle').forEach(el => el.style.display = '');
     }
@@ -5976,10 +6052,11 @@ body.fullscreen-mode .minimap { z-index: 9998; }
 .fs-doodle-canvas { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 9996; display: none; }
 body.fullscreen-mode .fs-doodle-canvas { display: block; }
 body.fullscreen-mode.fs-pen-active .fs-doodle-canvas { pointer-events: auto; cursor: crosshair; }
-.fs-cursor-toolbar { position: fixed; top: 0; left: 0; z-index: 10000; display: none; align-items: center; gap: 4px; padding: 6px; background: rgba(15,23,42,0.92); border-radius: 999px; box-shadow: 0 4px 12px -2px rgba(0,0,0,0.35), 0 16px 32px -8px rgba(0,0,0,0.55); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); transition: opacity 0.18s ease, transform 0.12s ease-out; transform: translate(0, 0); will-change: transform; user-select: none; pointer-events: auto; opacity: 0.92; }
+.fs-cursor-toolbar { position: fixed; top: 0; left: 0; z-index: 10000; display: none; align-items: center; gap: 4px; padding: 6px; background: rgba(15,23,42,0.92); border-radius: 999px; box-shadow: 0 4px 12px -2px rgba(0,0,0,0.35), 0 16px 32px -8px rgba(0,0,0,0.55); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); transition: opacity 0.18s ease; transform: translate(0,0); will-change: transform; user-select: none; pointer-events: auto; cursor: grab; opacity: 0.3; }
 body.fullscreen-mode .fs-cursor-toolbar { display: inline-flex; }
-.fs-cursor-toolbar:hover { opacity: 1; }
-body.fullscreen-mode.fs-drawing .fs-cursor-toolbar { opacity: 0.3; pointer-events: none; }
+.fs-cursor-toolbar:hover { opacity: 1; transition: opacity 0.05s ease-out; }
+.fs-cursor-toolbar.dragging { cursor: grabbing; opacity: 1; }
+body.fullscreen-mode.fs-drawing .fs-cursor-toolbar { opacity: 0.15; pointer-events: none; }
 .fs-tool-btn { width: 32px; height: 32px; padding: 0; border: none; background: transparent; color: rgba(255,255,255,0.92); border-radius: 999px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.12s, color 0.12s, transform 0.08s; flex-shrink: 0; }
 .fs-tool-btn svg { width: 18px; height: 18px; display: block; }
 .fs-tool-btn:hover { background: rgba(255,255,255,0.14); }
@@ -6713,26 +6790,50 @@ function buildViewerScript() {
         });
     }
     if (fsBar) {
-        let pinned = false;
-        let lastMove = 0;
-        function placeBar(cx, cy){
+        const FS_BAR_LS_VW = 'ccrd-viewer:fs-toolbar-pos';
+        function placeBar(x, y){
             const w = fsBar.offsetWidth || 280, h = fsBar.offsetHeight || 44;
-            let x = cx + 24, y = cy + 24;
-            if (x + w > window.innerWidth - 8) x = cx - w - 24;
-            if (y + h > window.innerHeight - 8) y = cy - h - 24;
-            x = Math.max(8, x); y = Math.max(8, y);
+            x = Math.max(8, Math.min(window.innerWidth - w - 8, x));
+            y = Math.max(8, Math.min(window.innerHeight - h - 8, y));
             fsBar.style.transform = 'translate(' + x + 'px, ' + y + 'px)';
         }
+        function restoreBar(){
+            let pos = null;
+            try { const v = localStorage.getItem(FS_BAR_LS_VW); if (v) pos = JSON.parse(v); } catch(e){}
+            if (!pos || typeof pos.x !== 'number') {
+                const w = fsBar.offsetWidth || 280;
+                pos = { x: Math.round((window.innerWidth - w) / 2), y: window.innerHeight - 80 };
+            }
+            placeBar(pos.x, pos.y);
+        }
+        restoreBar();
+        window.addEventListener('resize', () => {
+            const r = fsBar.getBoundingClientRect(); placeBar(r.left, r.top);
+        });
+        // 追蹤滑鼠位置（給 zoom-at-cursor 用）
         document.addEventListener('mousemove', (e) => {
             fsCursorX = e.clientX; fsCursorY = e.clientY;
-            if (!document.body.classList.contains('fullscreen-mode') || pinned) return;
-            const now = performance.now();
-            if (now - lastMove < 16) return;
-            lastMove = now;
-            placeBar(e.clientX, e.clientY);
         }, { passive: true });
-        fsBar.addEventListener('mouseenter', () => { pinned = true; });
-        fsBar.addEventListener('mouseleave', () => { pinned = false; });
+        // 拖曳：在「非按鈕、非色票」區域 mousedown 即啟動
+        let drag = null;
+        fsBar.addEventListener('mousedown', (e) => {
+            if (e.target.closest('.fs-tool-btn, .fs-color-swatch')) return;
+            const r = fsBar.getBoundingClientRect();
+            drag = { sx: e.clientX, sy: e.clientY, ox: r.left, oy: r.top };
+            fsBar.classList.add('dragging');
+            e.preventDefault();
+        });
+        window.addEventListener('mousemove', (e) => {
+            if (!drag) return;
+            placeBar(drag.ox + e.clientX - drag.sx, drag.oy + e.clientY - drag.sy);
+        });
+        window.addEventListener('mouseup', () => {
+            if (!drag) return;
+            fsBar.classList.remove('dragging');
+            const r = fsBar.getBoundingClientRect();
+            try { localStorage.setItem(FS_BAR_LS_VW, JSON.stringify({ x: r.left, y: r.top })); } catch(e){}
+            drag = null;
+        });
         fsBar.querySelectorAll('.fs-tool-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -6753,7 +6854,6 @@ function buildViewerScript() {
                 fsBar.querySelectorAll('.fs-color-swatch').forEach(x => x.classList.toggle('active', x === s));
             });
         });
-        placeBar(window.innerWidth / 2, window.innerHeight / 2);
     }
     if (fsDoodle) {
         let drawing = false, lastPt = null;
