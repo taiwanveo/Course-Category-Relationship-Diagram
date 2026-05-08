@@ -48,6 +48,10 @@
                     <span id="view-mode-icon">🦴</span>
                     <span id="view-mode-label">切到骨架</span>
                 </button>
+                <button id="btn-fullscreen" class="btn btn-toolbar" title="全螢幕展示模式：隱藏工具列與元件列，最大化畫布（Esc 退出）">
+                    <span id="fullscreen-icon">🖥️</span>
+                    <span id="fullscreen-label">全螢幕</span>
+                </button>
                 <button id="btn-theme-toggle" class="btn-icon" title="切換 Light / Dark 主題">
                     <span id="theme-icon">🌙</span>
                 </button>
@@ -125,6 +129,7 @@
                     <button id="btn-zoom-in" class="btn btn-small" title="放大 +5%">+</button>
                     <button id="btn-zoom-fit" class="btn btn-small" title="符合視窗寬度（畫布最右側對齊瀏覽器右側）">符合視窗</button>
                     <button id="btn-zoom-100" class="btn btn-small" title="100% 原始大小">100%</button>
+                    <button id="btn-toggle-minimap" class="btn btn-small" title="顯示／隱藏縮圖（minimap）">🗺️ 縮圖</button>
                 </div>
                 <div class="canvas-wrapper-outer" id="canvas-wrapper-outer">
                     <div class="canvas-wrapper" id="canvas-wrapper">
@@ -139,6 +144,30 @@
                 </div>
                 <!-- hover 預覽 -->
                 <div id="hover-preview" class="hover-preview" style="display:none;"></div>
+
+                <!-- Minimap（縮圖） -->
+                <aside id="minimap" class="minimap" style="display:none;">
+                    <div class="minimap-header" id="minimap-header" title="拖曳可移動位置">
+                        <span class="minimap-title">🗺️ <span>縮圖</span></span>
+                        <div class="minimap-opacity-row">
+                            <span class="minimap-opacity-label">透明度</span>
+                            <input type="range" id="minimap-opacity" class="minimap-opacity-slider" min="20" max="100" step="5" value="100" title="調整縮圖透明度">
+                            <span class="minimap-opacity-value" id="minimap-opacity-value">100%</span>
+                        </div>
+                        <button id="minimap-close" class="minimap-close-btn" title="隱藏縮圖">✕</button>
+                    </div>
+                    <div class="minimap-body" id="minimap-body">
+                        <svg id="minimap-svg" class="minimap-svg" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+                            <rect class="minimap-bg" x="0" y="0" width="100%" height="100%" fill="rgba(241,245,249,0.6)"/>
+                            <g id="minimap-content"></g>
+                            <rect id="minimap-viewport" class="minimap-viewport" x="0" y="0" width="0" height="0"/>
+                        </svg>
+                    </div>
+                    <div class="minimap-resize-handle" id="minimap-resize-handle" title="拖曳改變大小"></div>
+                </aside>
+
+                <!-- 全螢幕退出提示（只在 fullscreen-mode 顯示） -->
+                <button id="btn-exit-fullscreen" class="exit-fullscreen-btn" title="退出全螢幕（Esc）">✕ 退出全螢幕</button>
             </main>
 
             <!-- 右側屬性面板（彈出式） -->

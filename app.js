@@ -454,6 +454,16 @@ function setupEventListeners() {
 
     // 顯示模式切換（完整 ↔ 骨架）
     document.getElementById('btn-view-mode').addEventListener('click', toggleViewMode);
+    // 全螢幕展示模式
+    document.getElementById('btn-fullscreen').addEventListener('click', toggleFullscreen);
+    document.getElementById('btn-exit-fullscreen').addEventListener('click', exitFullscreenMode);
+    document.addEventListener('fullscreenchange', () => {
+        // 同步：如果使用者按 F11 退出瀏覽器全螢幕，也退出 app 內建模式
+        if (!document.fullscreenElement && document.body.classList.contains('fullscreen-mode')) {
+            document.body.classList.remove('fullscreen-mode');
+            setTimeout(() => { try { fitZoom(); } catch (e) {} }, 80);
+        }
+    });
     // 智慧整理（一鍵）
     document.getElementById('btn-smart-layout').addEventListener('click', () => smartLayout());
     document.getElementById('btn-version-history').addEventListener('click', openVersionHistory);
@@ -558,6 +568,7 @@ function setupEventListeners() {
     setupClassEditModal();
     setupImportConflictModal();
     setupShortcutsHelpModal();
+    setupMinimap();
 
     // 預設 hover preview 隱藏
     document.getElementById('hover-preview').addEventListener('mouseenter', () => hideHoverPreview());
@@ -735,9 +746,15 @@ function handleKeyDown(e) {
     const tag = (e.target.tagName || '').toUpperCase();
     if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
     if (e.key === 'Escape') {
+        if (document.body.classList.contains('fullscreen-mode')) { exitFullscreenMode(); e.preventDefault(); return; }
         if (connectorMode) { exitConnectorMode(); e.preventDefault(); return; }
         hideContextMenu();
         deselectAll();
+    }
+    // M: 切換 minimap
+    if ((e.key === 'm' || e.key === 'M') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const btn = document.getElementById('btn-toggle-minimap');
+        if (btn) { btn.click(); e.preventDefault(); }
     }
     if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selectedComponentIds.size > 0) {
@@ -877,6 +894,240 @@ function renderCanvas() {
         }
         refreshSelectionVisuals();
     }
+    // 同步 minimap
+    if (typeof renderMinimap === 'function') renderMinimap();
+}
+
+// ============================================================
+// 全螢幕展示模式
+// ============================================================
+function toggleFullscreen() {
+    const isFs = document.body.classList.contains('fullscreen-mode');
+    if (isFs) exitFullscreenMode();
+    else enterFullscreenMode();
+}
+function enterFullscreenMode() {
+    document.body.classList.add('fullscreen-mode');
+    // 同步呼叫瀏覽器 Fullscreen API（若支援，會用全螢幕填滿）
+    try {
+        if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
+            document.documentElement.requestFullscreen().catch(() => {});
+        }
+    } catch (e) {}
+    // 重新計算 fit zoom 以填滿新可視範圍
+    setTimeout(() => { try { fitZoom(); } catch (e) {} updateMinimapViewport && updateMinimapViewport(); }, 80);
+}
+function exitFullscreenMode() {
+    document.body.classList.remove('fullscreen-mode');
+    try {
+        if (document.fullscreenElement && document.exitFullscreen) {
+            document.exitFullscreen().catch(() => {});
+        }
+    } catch (e) {}
+    setTimeout(() => { try { fitZoom(); } catch (e) {} updateMinimapViewport && updateMinimapViewport(); }, 80);
+}
+
+// ============================================================
+// Minimap（縮圖）
+// ============================================================
+const MINIMAP_LS_KEY = 'ccrd:minimap';
+let minimapState = { visible: false, w: 240, h: 180, opacity: 100 };
+function loadMinimapState() {
+    try {
+        const v = localStorage.getItem(MINIMAP_LS_KEY);
+        if (v) Object.assign(minimapState, JSON.parse(v));
+    } catch (e) {}
+}
+function saveMinimapState() {
+    try { localStorage.setItem(MINIMAP_LS_KEY, JSON.stringify(minimapState)); } catch (e) {}
+}
+function setupMinimap() {
+    loadMinimapState();
+    const mm = document.getElementById('minimap');
+    if (!mm) return;
+    if (minimapState.visible) mm.style.display = 'flex';
+    mm.style.width = minimapState.w + 'px';
+    mm.style.height = minimapState.h + 'px';
+    mm.style.opacity = (minimapState.opacity / 100).toFixed(2);
+    const opSlider = document.getElementById('minimap-opacity');
+    const opVal = document.getElementById('minimap-opacity-value');
+    if (opSlider) opSlider.value = minimapState.opacity;
+    if (opVal) opVal.textContent = minimapState.opacity + '%';
+
+    // 切換顯示
+    const toggle = () => {
+        minimapState.visible = !minimapState.visible;
+        mm.style.display = minimapState.visible ? 'flex' : 'none';
+        saveMinimapState();
+        if (minimapState.visible) renderMinimap();
+    };
+    document.getElementById('btn-toggle-minimap').addEventListener('click', toggle);
+    document.getElementById('minimap-close').addEventListener('click', toggle);
+
+    // 透明度
+    if (opSlider) {
+        opSlider.addEventListener('input', (e) => {
+            const v = parseInt(e.target.value, 10);
+            minimapState.opacity = v;
+            mm.style.opacity = (v / 100).toFixed(2);
+            if (opVal) opVal.textContent = v + '%';
+            saveMinimapState();
+        });
+    }
+
+    // 拖曳 header 移動位置（自由位置存到 minimapState.left/top；不指定 → 預設 right/bottom）
+    const header = document.getElementById('minimap-header');
+    if (header) {
+        let drag = null;
+        header.addEventListener('mousedown', (e) => {
+            // 如果點擊在 slider 或 close 按鈕上，不啟動拖曳
+            if (e.target.closest('input, button')) return;
+            const r = mm.getBoundingClientRect();
+            drag = { sx: e.clientX, sy: e.clientY, l: r.left, t: r.top };
+            e.preventDefault();
+        });
+        window.addEventListener('mousemove', (e) => {
+            if (!drag) return;
+            const nl = Math.max(8, Math.min(window.innerWidth - mm.offsetWidth - 8, drag.l + (e.clientX - drag.sx)));
+            const nt = Math.max(8, Math.min(window.innerHeight - mm.offsetHeight - 8, drag.t + (e.clientY - drag.sy)));
+            mm.style.left = nl + 'px'; mm.style.top = nt + 'px';
+            mm.style.right = 'auto'; mm.style.bottom = 'auto';
+            minimapState.left = nl; minimapState.top = nt;
+        });
+        window.addEventListener('mouseup', () => { if (drag) { drag = null; saveMinimapState(); } });
+    }
+    // 套用儲存的位置
+    if (minimapState.left != null) { mm.style.left = minimapState.left + 'px'; mm.style.right = 'auto'; }
+    if (minimapState.top != null)  { mm.style.top = minimapState.top + 'px'; mm.style.bottom = 'auto'; }
+
+    // resize handle（左下角）
+    const handle = document.getElementById('minimap-resize-handle');
+    if (handle) {
+        let rs = null;
+        handle.addEventListener('mousedown', (e) => {
+            const r = mm.getBoundingClientRect();
+            rs = { sx: e.clientX, sy: e.clientY, w: r.width, h: r.height, leftEdge: r.left };
+            e.preventDefault(); e.stopPropagation();
+        });
+        window.addEventListener('mousemove', (e) => {
+            if (!rs) return;
+            const dx = e.clientX - rs.sx;
+            const dy = e.clientY - rs.sy;
+            // 從左下角拖：dx 增加 → 寬度減少；dy 增加 → 高度增加
+            const newW = Math.max(160, Math.min(480, rs.w - dx));
+            const newH = Math.max(120, Math.min(360, rs.h + dy));
+            mm.style.width = newW + 'px';
+            mm.style.height = newH + 'px';
+            // 若用 left 定位，要同步調整 left 才能讓右邊不動
+            if (mm.style.left && mm.style.left !== 'auto') {
+                mm.style.left = (rs.leftEdge + dx) + 'px';
+                minimapState.left = rs.leftEdge + dx;
+            }
+            minimapState.w = newW; minimapState.h = newH;
+            renderMinimap();
+        });
+        window.addEventListener('mouseup', () => { if (rs) { rs = null; saveMinimapState(); } });
+    }
+
+    // 點 / 拖曳 viewport 框 → 平移畫布
+    const vp = document.getElementById('minimap-viewport');
+    const svg = document.getElementById('minimap-svg');
+    let vpDrag = null;
+    function panFromMinimap(clientX, clientY, fromCenter) {
+        const outer = document.getElementById('canvas-wrapper-outer');
+        if (!outer || !projectData) return;
+        const svgRect = svg.getBoundingClientRect();
+        const ratioX = (clientX - svgRect.left) / svgRect.width;
+        const ratioY = (clientY - svgRect.top) / svgRect.height;
+        const targetBoardX = ratioX * projectData.board.w;
+        const targetBoardY = ratioY * projectData.board.h;
+        // 把 viewport 中心對齊目標
+        const z = (typeof viewportZoom === 'number') ? viewportZoom : 1;
+        const newScrollX = targetBoardX * z - outer.clientWidth / 2;
+        const newScrollY = targetBoardY * z - outer.clientHeight / 2;
+        outer.scrollTo({ left: newScrollX, top: newScrollY, behavior: fromCenter ? 'smooth' : 'auto' });
+    }
+    if (svg) {
+        svg.addEventListener('mousedown', (e) => {
+            // 開始拖曳：讓 viewport 中心跟隨滑鼠
+            vpDrag = true;
+            panFromMinimap(e.clientX, e.clientY, false);
+        });
+    }
+    window.addEventListener('mousemove', (e) => {
+        if (!vpDrag) return;
+        panFromMinimap(e.clientX, e.clientY, false);
+    });
+    window.addEventListener('mouseup', () => { vpDrag = false; });
+
+    // 監聽編輯器畫布捲動，更新視窗指示框
+    const outer = document.getElementById('canvas-wrapper-outer');
+    if (outer) outer.addEventListener('scroll', () => updateMinimapViewport());
+
+    // 初次渲染
+    renderMinimap();
+}
+
+function renderMinimap() {
+    const mm = document.getElementById('minimap');
+    if (!mm || mm.style.display === 'none' || !projectData) return;
+    const svg = document.getElementById('minimap-svg');
+    const g = document.getElementById('minimap-content');
+    if (!svg || !g) return;
+    const bw = projectData.board.w, bh = projectData.board.h;
+    svg.setAttribute('viewBox', `0 0 ${bw} ${bh}`);
+    g.innerHTML = '';
+    // 連線（簡化為起終 bbox 中心連線）
+    const compById = {};
+    projectData.components.forEach(c => compById[c.id] = c);
+    projectData.connectors.forEach(cn => {
+        const f = compById[cn.fromComponentId], t = compById[cn.toComponentId];
+        if (!f || !t) return;
+        const x1 = f.x + f.w / 2, y1 = f.y + f.h / 2;
+        const x2 = t.x + t.w / 2, y2 = t.y + t.h / 2;
+        const ln = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        ln.setAttribute('x1', x1); ln.setAttribute('y1', y1);
+        ln.setAttribute('x2', x2); ln.setAttribute('y2', y2);
+        ln.setAttribute('class', 'minimap-conn');
+        g.appendChild(ln);
+    });
+    // 元件
+    projectData.components.forEach(comp => {
+        const r = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        r.setAttribute('x', comp.x); r.setAttribute('y', comp.y);
+        r.setAttribute('width', comp.w); r.setAttribute('height', comp.h);
+        r.setAttribute('rx', '4');
+        let role = 'other';
+        if (comp.type === 'course-category') {
+            const hasIn = projectData.connectors.some(cn => cn.toComponentId === comp.id);
+            const hasOut = projectData.connectors.some(cn => cn.fromComponentId === comp.id);
+            role = (!hasIn && hasOut) ? 'main' : (hasIn ? 'sub' : 'main');
+        } else if (comp.type === 'text') role = 'text';
+        else if (comp.type === 'tag') role = 'tag';
+        else if (comp.type === 'image') role = 'image';
+        r.setAttribute('class', 'minimap-comp role-' + role);
+        // 用使用者卡片邊框色
+        if (comp.type === 'course-category' && comp.style && comp.style.borderColor) {
+            r.setAttribute('style', `fill:${comp.style.borderColor};fill-opacity:0.6;stroke:${comp.style.borderColor};`);
+        }
+        g.appendChild(r);
+    });
+    updateMinimapViewport();
+}
+
+function updateMinimapViewport() {
+    const vp = document.getElementById('minimap-viewport');
+    const outer = document.getElementById('canvas-wrapper-outer');
+    if (!vp || !outer || !projectData) return;
+    const z = (typeof viewportZoom === 'number') ? viewportZoom : 1;
+    const x = outer.scrollLeft / z;
+    const y = outer.scrollTop / z;
+    const w = outer.clientWidth / z;
+    const h = outer.clientHeight / z;
+    vp.setAttribute('x', x);
+    vp.setAttribute('y', y);
+    vp.setAttribute('width', Math.min(projectData.board.w, w));
+    vp.setAttribute('height', Math.min(projectData.board.h, h));
 }
 
 function updateStats() {
@@ -5313,10 +5564,77 @@ async function exportHTML() {
     padding: 2px 8px; font-size: 11px; margin: 2px 2px 0 0;
 }
 .cls-row-tag.cls-tag-hit { box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--primary, #6366f1); }
+
+/* ===== 全螢幕模式 ===== */
+body.fullscreen-mode .viewer-toolbar { display: none !important; }
+body.fullscreen-mode .filter-toggle-btn { display: none; }
+body.fullscreen-mode .filter-panel { display: none; }
+body.fullscreen-mode .canvas-area { padding: 0 !important; }
+.exit-fullscreen-btn {
+    display: none;
+    position: fixed; top: 12px; right: 12px;
+    z-index: 9999;
+    padding: 8px 16px;
+    background: rgba(15,23,42,0.85);
+    color: #fff; border: none; border-radius: 999px;
+    cursor: pointer; font-size: 13px; font-weight: 600;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    transition: background 0.15s, transform 0.15s;
+}
+.exit-fullscreen-btn:hover { background: rgba(220,38,38,0.92); transform: scale(1.05); }
+body.fullscreen-mode .exit-fullscreen-btn { display: inline-flex; align-items: center; gap: 4px; }
+
+/* ===== Minimap ===== */
+.minimap {
+    position: fixed; right: 16px; bottom: 16px;
+    width: 240px; height: 180px;
+    min-width: 160px; min-height: 120px;
+    max-width: 480px; max-height: 360px;
+    background: var(--bg-card, #fff);
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 12px;
+    box-shadow: 0 4px 12px -2px rgba(15,23,42,0.10), 0 16px 32px -8px rgba(15,23,42,0.18);
+    z-index: 90; display: flex; flex-direction: column; overflow: visible;
+    transition: opacity 0.2s ease;
+}
+body.fullscreen-mode .minimap { z-index: 9998; }
+.minimap-header {
+    flex: 0 0 auto; height: 28px; padding: 4px 8px;
+    display: flex; align-items: center; justify-content: space-between;
+    background: rgba(15,23,42,0.05);
+    border-bottom: 1px solid var(--border, #e2e8f0);
+    border-radius: 11px 11px 0 0;
+    cursor: move; user-select: none; gap: 8px;
+}
+.minimap-title { font-size: 11px; font-weight: 600; color: var(--text-secondary, #475569); display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.minimap-opacity-row { flex: 1; display: flex; align-items: center; gap: 4px; overflow: hidden; max-width: 0; opacity: 0; transition: max-width 0.25s, opacity 0.2s; }
+.minimap:hover .minimap-opacity-row { max-width: 200px; opacity: 1; }
+.minimap-opacity-label { font-size: 10px; color: var(--text-muted, #64748b); white-space: nowrap; }
+.minimap-opacity-slider { flex: 1; min-width: 60px; height: 3px; accent-color: #6366f1; cursor: pointer; }
+.minimap-opacity-value { font-size: 10px; color: var(--text-muted, #64748b); min-width: 28px; text-align: right; }
+.minimap-close-btn { background: none; border: none; padding: 0; width: 18px; height: 18px; border-radius: 4px; cursor: pointer; color: var(--text-muted, #64748b); font-size: 12px; line-height: 1; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.minimap-close-btn:hover { background: rgba(239,68,68,0.15); color: #ef4444; }
+.minimap-body { flex: 1; overflow: hidden; position: relative; background: var(--bg-canvas-outer, #f8fafc); border-radius: 0 0 11px 11px; }
+.minimap-svg { width: 100%; height: 100%; display: block; cursor: grab; }
+.minimap-svg:active { cursor: grabbing; }
+.minimap-comp { fill: #6366f1; fill-opacity: 0.55; stroke: #6366f1; stroke-width: 0.5; }
+.minimap-comp.role-main { fill: #6366f1; fill-opacity: 0.85; stroke: #4f46e5; }
+.minimap-comp.role-sub  { fill: #ec4899; fill-opacity: 0.7; stroke: #db2777; }
+.minimap-comp.role-text { fill: #6b7280; fill-opacity: 0.5; }
+.minimap-comp.role-tag  { fill: #10b981; fill-opacity: 0.6; }
+.minimap-comp.role-image{ fill: #f59e0b; fill-opacity: 0.55; }
+.minimap-conn { stroke: #94a3b8; stroke-width: 0.4; opacity: 0.6; fill: none; }
+.minimap-viewport { fill: rgba(99,102,241,0.08); stroke: #6366f1; stroke-width: 1.5; stroke-dasharray: 3 2; cursor: move; pointer-events: all; }
+.minimap-resize-handle { position: absolute; left: -2px; bottom: -2px; width: 14px; height: 14px; cursor: nesw-resize; z-index: 2; background: linear-gradient(45deg, transparent 50%, rgba(99,102,241,0.6) 50%); border-radius: 0 0 0 6px; opacity: 0; transition: opacity 0.2s; }
+.minimap:hover .minimap-resize-handle { opacity: 0.7; }
+.minimap-resize-handle:hover { opacity: 1 !important; }
 </style></head>
 <body><div class="viewer-toolbar"><h1>${escapeHtml(projectData.name || '分類圖')} <span style="font-size:11px;color:var(--text-muted);font-weight:400;">學科：${escapeHtml(projectData.subject || '')}</span></h1>
 <div class="viewer-toolbar-right">
 <button class="btn btn-small" id="vw-view-mode" title="切換顯示模式：完整 ↔ 骨架"><span id="vw-view-mode-icon">${currentViewMode === 'skeleton' ? '👁️' : '🦴'}</span> <span id="vw-view-mode-label">${currentViewMode === 'skeleton' ? '切回完整' : '切到骨架'}</span></button>
+<button class="btn btn-small" id="vw-toggle-minimap" title="顯示／隱藏縮圖 (M)">🗺️ 縮圖</button>
+<button class="btn btn-small" id="vw-fullscreen" title="全螢幕展示模式（Esc 退出）">🖥️ 全螢幕</button>
 <span style="font-size:12px;color:var(--text-muted);" id="zoom-info">縮放 100%</span>
 <button class="btn btn-small" id="z-out" title="縮小 −5%">−</button>
 <input type="range" id="z-slider" min="0.1" max="4" step="0.01" value="1" title="縮放控制滑桿（拖曳調整／焦點時可用左右鍵 ±1%）" style="vertical-align:middle;cursor:pointer;width:140px;accent-color:#6366f1;">
@@ -5324,6 +5642,26 @@ async function exportHTML() {
 <button class="btn btn-small" id="z-fit" title="符合視窗寬度">符合視窗</button>
 <button class="btn btn-small" id="z-100">100%</button>
 </div></div>
+<button id="vw-exit-fullscreen" class="exit-fullscreen-btn" title="退出全螢幕（Esc）">✕ 退出全螢幕</button>
+<aside id="vw-minimap" class="minimap" style="display:none;">
+    <div class="minimap-header" id="vw-minimap-header">
+        <span class="minimap-title">🗺️ <span>縮圖</span></span>
+        <div class="minimap-opacity-row">
+            <span class="minimap-opacity-label">透明度</span>
+            <input type="range" id="vw-minimap-opacity" class="minimap-opacity-slider" min="20" max="100" step="5" value="100">
+            <span class="minimap-opacity-value" id="vw-minimap-opacity-value">100%</span>
+        </div>
+        <button id="vw-minimap-close" class="minimap-close-btn" title="隱藏縮圖">✕</button>
+    </div>
+    <div class="minimap-body">
+        <svg id="vw-minimap-svg" class="minimap-svg" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+            <rect class="minimap-bg" x="0" y="0" width="100%" height="100%" fill="rgba(241,245,249,0.6)"/>
+            <g id="vw-minimap-content"></g>
+            <rect id="vw-minimap-viewport" class="minimap-viewport" x="0" y="0" width="0" height="0"/>
+        </svg>
+    </div>
+    <div class="minimap-resize-handle" id="vw-minimap-resize"></div>
+</aside>
 <button class="filter-toggle-btn" id="filter-toggle-btn" title="標籤篩選 (F)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg><span class="badge" id="filter-count-badge" style="display:none;">0</span></button>
 <aside class="filter-panel collapsed" id="filter-panel">
     <div class="filter-panel-header">
@@ -5899,6 +6237,189 @@ function buildViewerScript() {
         if (el) el.addEventListener('click', () => userAdjusted = true);
     });
     window.addEventListener('resize', () => { if (!userAdjusted) fitZoomViewer(); });
+
+    // ========== 全螢幕展示模式 ==========
+    function enterFs(){
+        document.body.classList.add('fullscreen-mode');
+        try { if (document.documentElement.requestFullscreen && !document.fullscreenElement) document.documentElement.requestFullscreen().catch(()=>{}); } catch(e){}
+        setTimeout(()=>{ try{ fitZoomViewer(); }catch(e){} updateMmViewport(); }, 80);
+    }
+    function exitFs(){
+        document.body.classList.remove('fullscreen-mode');
+        try { if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(()=>{}); } catch(e){}
+        setTimeout(()=>{ try{ fitZoomViewer(); }catch(e){} updateMmViewport(); }, 80);
+    }
+    document.getElementById('vw-fullscreen').addEventListener('click', () => {
+        document.body.classList.contains('fullscreen-mode') ? exitFs() : enterFs();
+    });
+    document.getElementById('vw-exit-fullscreen').addEventListener('click', exitFs);
+    document.addEventListener('fullscreenchange', () => {
+        if (!document.fullscreenElement && document.body.classList.contains('fullscreen-mode')) {
+            document.body.classList.remove('fullscreen-mode');
+            setTimeout(()=>{ try{ fitZoomViewer(); }catch(e){} }, 80);
+        }
+    });
+    document.addEventListener('keydown', (e) => {
+        const tag = (e.target.tagName||'').toUpperCase();
+        if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+        if (e.key === 'Escape' && document.body.classList.contains('fullscreen-mode')) { exitFs(); e.preventDefault(); }
+        if ((e.key === 'm' || e.key === 'M') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            const btn = document.getElementById('vw-toggle-minimap'); if (btn) { btn.click(); e.preventDefault(); }
+        }
+    });
+
+    // ========== Minimap ==========
+    const MM_LS = 'ccrd-viewer:minimap';
+    let mmState = { visible: false, w: 240, h: 180, opacity: 100 };
+    try { const v = localStorage.getItem(MM_LS); if (v) Object.assign(mmState, JSON.parse(v)); } catch(e){}
+    const mm = document.getElementById('vw-minimap');
+    const mmSvg = document.getElementById('vw-minimap-svg');
+    const mmContent = document.getElementById('vw-minimap-content');
+    const mmVp = document.getElementById('vw-minimap-viewport');
+    const mmOpSlider = document.getElementById('vw-minimap-opacity');
+    const mmOpVal = document.getElementById('vw-minimap-opacity-value');
+    function saveMm(){ try{ localStorage.setItem(MM_LS, JSON.stringify(mmState)); }catch(e){} }
+    function applyMmState(){
+        mm.style.display = mmState.visible ? 'flex' : 'none';
+        mm.style.width = mmState.w + 'px';
+        mm.style.height = mmState.h + 'px';
+        mm.style.opacity = (mmState.opacity/100).toFixed(2);
+        if (mmOpSlider) mmOpSlider.value = mmState.opacity;
+        if (mmOpVal) mmOpVal.textContent = mmState.opacity + '%';
+        if (mmState.left != null) { mm.style.left = mmState.left + 'px'; mm.style.right = 'auto'; }
+        if (mmState.top != null) { mm.style.top = mmState.top + 'px'; mm.style.bottom = 'auto'; }
+    }
+    applyMmState();
+    document.getElementById('vw-toggle-minimap').addEventListener('click', () => {
+        mmState.visible = !mmState.visible; saveMm(); applyMmState();
+        if (mmState.visible) renderMm();
+    });
+    document.getElementById('vw-minimap-close').addEventListener('click', () => {
+        mmState.visible = false; saveMm(); applyMmState();
+    });
+    if (mmOpSlider) mmOpSlider.addEventListener('input', (e) => {
+        const v = parseInt(e.target.value, 10); mmState.opacity = v;
+        mm.style.opacity = (v/100).toFixed(2);
+        if (mmOpVal) mmOpVal.textContent = v + '%';
+        saveMm();
+    });
+    (function(){
+        const header = document.getElementById('vw-minimap-header');
+        let drag = null;
+        if (!header) return;
+        header.addEventListener('mousedown', (e) => {
+            if (e.target.closest('input, button')) return;
+            const r = mm.getBoundingClientRect();
+            drag = { sx: e.clientX, sy: e.clientY, l: r.left, t: r.top };
+            e.preventDefault();
+        });
+        window.addEventListener('mousemove', (e) => {
+            if (!drag) return;
+            const nl = Math.max(8, Math.min(window.innerWidth - mm.offsetWidth - 8, drag.l + e.clientX - drag.sx));
+            const nt = Math.max(8, Math.min(window.innerHeight - mm.offsetHeight - 8, drag.t + e.clientY - drag.sy));
+            mm.style.left = nl + 'px'; mm.style.top = nt + 'px';
+            mm.style.right = 'auto'; mm.style.bottom = 'auto';
+            mmState.left = nl; mmState.top = nt;
+        });
+        window.addEventListener('mouseup', () => { if (drag) { drag = null; saveMm(); } });
+    })();
+    (function(){
+        const handle = document.getElementById('vw-minimap-resize');
+        if (!handle) return;
+        let rs = null;
+        handle.addEventListener('mousedown', (e) => {
+            const r = mm.getBoundingClientRect();
+            rs = { sx: e.clientX, sy: e.clientY, w: r.width, h: r.height, leftEdge: r.left };
+            e.preventDefault(); e.stopPropagation();
+        });
+        window.addEventListener('mousemove', (e) => {
+            if (!rs) return;
+            const dx = e.clientX - rs.sx, dy = e.clientY - rs.sy;
+            const newW = Math.max(160, Math.min(480, rs.w - dx));
+            const newH = Math.max(120, Math.min(360, rs.h + dy));
+            mm.style.width = newW + 'px'; mm.style.height = newH + 'px';
+            if (mm.style.left && mm.style.left !== 'auto') {
+                mm.style.left = (rs.leftEdge + dx) + 'px';
+                mmState.left = rs.leftEdge + dx;
+            }
+            mmState.w = newW; mmState.h = newH;
+            renderMm();
+        });
+        window.addEventListener('mouseup', () => { if (rs) { rs = null; saveMm(); } });
+    })();
+    (function(){
+        let panning = false;
+        function pan(cx, cy) {
+            const outer = document.querySelector('.canvas-wrapper-outer') || document.querySelector('.canvas-area') || document.documentElement;
+            const sr = mmSvg.getBoundingClientRect();
+            const rx = (cx - sr.left) / sr.width;
+            const ry = (cy - sr.top) / sr.height;
+            const tx = rx * projectData.board.w * viewportZoom;
+            const ty = ry * projectData.board.h * viewportZoom;
+            const sx = tx - (outer.clientWidth || window.innerWidth) / 2;
+            const sy = ty - (outer.clientHeight || window.innerHeight) / 2;
+            outer.scrollTo({ left: sx, top: sy });
+        }
+        if (!mmSvg) return;
+        mmSvg.addEventListener('mousedown', (e) => { panning = true; pan(e.clientX, e.clientY); });
+        window.addEventListener('mousemove', (e) => { if (panning) pan(e.clientX, e.clientY); });
+        window.addEventListener('mouseup', () => { panning = false; });
+    })();
+    function renderMm(){
+        if (!mm || mm.style.display === 'none' || !mmSvg) return;
+        const bw = projectData.board.w, bh = projectData.board.h;
+        mmSvg.setAttribute('viewBox', '0 0 ' + bw + ' ' + bh);
+        mmContent.innerHTML = '';
+        const compById = {};
+        projectData.components.forEach(c => compById[c.id] = c);
+        projectData.connectors.forEach(cn => {
+            const f = compById[cn.fromComponentId], t = compById[cn.toComponentId];
+            if (!f || !t) return;
+            const ln = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            ln.setAttribute('x1', f.x + f.w/2); ln.setAttribute('y1', f.y + f.h/2);
+            ln.setAttribute('x2', t.x + t.w/2); ln.setAttribute('y2', t.y + t.h/2);
+            ln.setAttribute('class', 'minimap-conn');
+            mmContent.appendChild(ln);
+        });
+        projectData.components.forEach(comp => {
+            const r = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            r.setAttribute('x', comp.x); r.setAttribute('y', comp.y);
+            r.setAttribute('width', comp.w); r.setAttribute('height', comp.h);
+            r.setAttribute('rx', '4');
+            let role = 'other';
+            if (comp.type === 'course-category') {
+                const hasIn = projectData.connectors.some(cn => cn.toComponentId === comp.id);
+                const hasOut = projectData.connectors.some(cn => cn.fromComponentId === comp.id);
+                role = (!hasIn && hasOut) ? 'main' : (hasIn ? 'sub' : 'main');
+            } else if (comp.type === 'text') role = 'text';
+            else if (comp.type === 'tag') role = 'tag';
+            else if (comp.type === 'image') role = 'image';
+            r.setAttribute('class', 'minimap-comp role-' + role);
+            if (comp.type === 'course-category' && comp.style && comp.style.borderColor) {
+                r.setAttribute('style', 'fill:' + comp.style.borderColor + ';fill-opacity:0.6;stroke:' + comp.style.borderColor + ';');
+            }
+            mmContent.appendChild(r);
+        });
+        updateMmViewport();
+    }
+    function updateMmViewport(){
+        if (!mmVp || !projectData) return;
+        const outer = document.querySelector('.canvas-wrapper-outer') || document.querySelector('.canvas-area') || document.documentElement;
+        const z = viewportZoom || 1;
+        const x = (outer.scrollLeft || 0) / z;
+        const y = (outer.scrollTop || 0) / z;
+        const w = (outer.clientWidth || window.innerWidth) / z;
+        const h = (outer.clientHeight || window.innerHeight) / z;
+        mmVp.setAttribute('x', x); mmVp.setAttribute('y', y);
+        mmVp.setAttribute('width', Math.min(projectData.board.w, w));
+        mmVp.setAttribute('height', Math.min(projectData.board.h, h));
+    }
+    const scrollTarget = document.querySelector('.canvas-wrapper-outer') || document.querySelector('.canvas-area');
+    if (scrollTarget) scrollTarget.addEventListener('scroll', updateMmViewport);
+    window.addEventListener('scroll', updateMmViewport);
+    const __origApplyZoom = applyZoom;
+    applyZoom = function(){ __origApplyZoom(); updateMmViewport(); };
+    if (mmState.visible) setTimeout(renderMm, 80);
 })();`;
 }
 
