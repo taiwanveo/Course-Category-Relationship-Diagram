@@ -2296,7 +2296,17 @@ function bindComponentPropertyEvents(comp) {
         if (shapeGrid) {
             shapeGrid.querySelectorAll('.card-shape-btn').forEach(btn => {
                 btn.addEventListener('click', () => {
-                    comp.style.cardShape = btn.dataset.shape || 'default';
+                    const newShape = btn.dataset.shape || 'default';
+                    comp.style.cardShape = newShape;
+                    // pill 兩端圓弧會吃掉 ~高度/2 的空間，太窄會把文字截斷，
+                    // 自動把寬度補足到 (高度*2 + 內容空間)
+                    if (newShape === 'pill') {
+                        const minPillW = Math.max(380, Math.round(comp.h * 2.4));
+                        if (comp.w < minPillW) {
+                            const maxAllowed = Math.max(comp.w, projectData.board.w - comp.x - 40);
+                            comp.w = Math.min(maxAllowed, minPillW);
+                        }
+                    }
                     shapeGrid.querySelectorAll('.card-shape-btn').forEach(b => b.classList.toggle('active', b === btn));
                     renderCanvas(); scheduleSaveDraft();
                 });

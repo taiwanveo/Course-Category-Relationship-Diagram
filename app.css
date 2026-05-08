@@ -491,7 +491,7 @@ body {
 .shortcuts-help-btn {
     position: absolute;
     top: 16px;
-    right: 110px;
+    right: 60px;
     width: 19px; height: 19px;
     border-radius: 50%;
     border: none;
@@ -905,7 +905,16 @@ body {
 /* pill：膠囊型大圓角（仿 Wise / Stripe CTA） */
 .component-card[data-card-shape="pill"] { border-radius: 9999px; }
 .component-card[data-card-shape="pill"]::before { border-radius: 9999px 0 0 9999px; }
-.component-card[data-card-shape="pill"] .card-body { padding-left: 28px; padding-right: 24px; }
+/* 膠囊兩端的圓弧寬度 ≈ 卡片高度的一半，必須給 card-body 足夠的左右
+   留白避免文字被弧形截斷。預設 60px 適合常見的 ~150px 卡片高度。 */
+.component-card[data-card-shape="pill"] .card-body {
+    padding-left: 60px;
+    padding-right: 60px;
+}
+.component-card[data-card-shape="pill"] .card-tags {
+    padding-left: 60px;
+    padding-right: 60px;
+}
 
 /* sharp：直角矩形 + 髮絲邊（仿 WIRED / Vercel） */
 .component-card[data-card-shape="sharp"] { border-radius: 0; }
