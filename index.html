@@ -238,19 +238,21 @@
         <div id="tag-manager-overlay" class="modal-overlay" style="display:none;">
             <div class="modal modal-wide">
                 <h2>標籤管理</h2>
-                <p class="modal-desc">五大類標籤可勾選於課程類別卡或班名上。可自訂新增、改名、改色、刪除。</p>
-                <div class="tag-manager-tabs">
-                    <button class="tag-tab active" data-tagcat="audience">A. 對象</button>
-                    <button class="tag-tab" data-tagcat="level">B. 等級</button>
-                    <button class="tag-tab" data-tagcat="attribute">C. 屬性</button>
-                    <button class="tag-tab" data-tagcat="topic">D. 主題</button>
-                    <button class="tag-tab" data-tagcat="format">E. 形式</button>
+                <p class="modal-desc">五大類標籤可勾選於課程類別卡或班名上。可自訂新增、改名、改色、刪除。內建 A~E 五類可改名但不可刪除，最多可再新增 2 個自訂類別。</p>
+                <div class="tag-manager-tabs" id="tag-manager-tabs">
+                    <!-- 動態渲染：內建 5 + 自訂 0~2 + ＋新類別按鈕 -->
+                </div>
+                <div class="tag-manager-cat-edit" id="tag-manager-cat-edit" style="display:flex;gap:8px;align-items:center;padding:10px 12px;background:rgba(99,102,241,0.06);border-radius:8px;margin:8px 0;">
+                    <span style="font-size:12px;color:var(--text-secondary);font-weight:600;">當前類別名稱：</span>
+                    <input type="text" id="tag-cat-rename" placeholder="例：A. 對象 / F. 難度" style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+                    <button id="tag-cat-rename-btn" class="btn btn-small btn-primary">儲存名稱</button>
+                    <button id="tag-cat-delete-btn" class="btn btn-small" style="background:#fee2e2;color:#b91c1c;display:none;">🗑️ 刪除此類別</button>
                 </div>
                 <div class="tag-manager-list" id="tag-manager-list"></div>
                 <div class="tag-manager-add">
                     <input type="text" id="tag-add-name" placeholder="新增標籤名稱">
                     <input type="color" id="tag-add-color" value="#3b82f6">
-                    <button id="tag-add-btn" class="btn btn-primary">＋ 新增</button>
+                    <button id="tag-add-btn" class="btn btn-primary">＋ 新增標籤</button>
                 </div>
                 <div class="modal-actions">
                     <button id="tag-manager-close" class="btn btn-primary">關閉</button>

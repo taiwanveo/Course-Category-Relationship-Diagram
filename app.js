@@ -94,6 +94,39 @@ const TAG_CATEGORY_LABELS = {
     format:   'E. 形式'
 };
 const TAG_CATEGORY_KEYS = ['audience', 'level', 'attribute', 'topic', 'format'];
+const TAG_CATEGORY_KEYS_BUILTIN = TAG_CATEGORY_KEYS;
+const MAX_CUSTOM_CATEGORIES = 2;
+
+// ============================================================
+// 動態類別 helpers（內建 5 個 + 最多 2 個自訂）
+// ============================================================
+function getAllCategoryKeys() {
+    const customs = (projectData && Array.isArray(projectData.customTagCategories))
+        ? projectData.customTagCategories : [];
+    return [...TAG_CATEGORY_KEYS_BUILTIN, ...customs.map(c => c.key)];
+}
+function getCategoryLabel(key) {
+    if (TAG_CATEGORY_KEYS_BUILTIN.indexOf(key) >= 0) {
+        if (projectData && projectData.builtinCategoryLabels && projectData.builtinCategoryLabels[key]) {
+            return projectData.builtinCategoryLabels[key];
+        }
+        return TAG_CATEGORY_LABELS[key];
+    }
+    const customs = (projectData && Array.isArray(projectData.customTagCategories))
+        ? projectData.customTagCategories : [];
+    const c = customs.find(x => x.key === key);
+    return c ? c.label : key;
+}
+function getCustomCategories() {
+    return (projectData && Array.isArray(projectData.customTagCategories))
+        ? projectData.customTagCategories : [];
+}
+function isBuiltinCategory(key) {
+    return TAG_CATEGORY_KEYS_BUILTIN.indexOf(key) >= 0;
+}
+function generateCustomCategoryKey() {
+    return 'custom_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+}
 
 const BOARD_PRESETS = {
     '1920x1080': { w: 1920, h: 1080 },
@@ -335,7 +368,7 @@ function setActiveDiagram(diagram) {
         const m = c.id && c.id.match(/^conn(\d+)$/);
         if (m) mn = Math.max(mn, parseInt(m[1], 10));
     });
-    TAG_CATEGORY_KEYS.forEach(cat => {
+    Object.keys(projectData.tagLibrary || {}).forEach(cat => {
         (projectData.tagLibrary[cat] || []).forEach(t => {
             const m = (t.id || '').match(/^t(\d+)$/);
             if (m) mt = Math.max(mt, parseInt(m[1], 10));
@@ -358,6 +391,12 @@ function ensureDiagramIntegrity() {
     if (!projectData.tagLibrary) projectData.tagLibrary = buildDefaultTagLibrary();
     TAG_CATEGORY_KEYS.forEach(cat => {
         if (!Array.isArray(projectData.tagLibrary[cat])) projectData.tagLibrary[cat] = [];
+    });
+    // v3.1：自訂類別（最多 2 個）+ 內建類別重命名（label override）
+    if (!Array.isArray(projectData.customTagCategories)) projectData.customTagCategories = [];
+    if (!projectData.builtinCategoryLabels) projectData.builtinCategoryLabels = {};
+    projectData.customTagCategories.forEach(c => {
+        if (!Array.isArray(projectData.tagLibrary[c.key])) projectData.tagLibrary[c.key] = [];
     });
     if (!projectData.seeded) projectData.seeded = {};
 
@@ -396,7 +435,7 @@ function ensureDiagramIntegrity() {
     projectData.components.forEach(c => {
         if (c.type === 'course-category') {
             if (!c.props.assignedTags) c.props.assignedTags = {};
-            TAG_CATEGORY_KEYS.forEach(cat => {
+            getAllCategoryKeys().forEach(cat => {
                 if (!Array.isArray(c.props.assignedTags[cat])) c.props.assignedTags[cat] = [];
             });
             if (!Array.isArray(c.props.classes)) c.props.classes = [];
@@ -1163,10 +1202,12 @@ function createComponent(type) {
     switch (type) {
         case 'course-category': {
             base.w = 320; base.h = 150;
+            const initialAssignedTags = {};
+            getAllCategoryKeys().forEach(k => initialAssignedTags[k] = []);
             base.props = {
                 title: '課程類別',
                 subtitle: '副標題（可選）',
-                assignedTags: { audience: [], level: [], attribute: [], topic: [], format: [] },
+                assignedTags: initialAssignedTags,
                 classes: []
             };
             const defaultStyle = {
@@ -1409,14 +1450,14 @@ function renderCategoryCard(div, comp) {
         tagsWrap.className = 'card-tags';
         const at = comp.props.assignedTags || {};
         let total = 0;
-        TAG_CATEGORY_KEYS.forEach(cat => {
+        getAllCategoryKeys().forEach(cat => {
             (at[cat] || []).forEach(tagId => {
                 const tag = findTagById(cat, tagId); if (!tag) return;
                 const chip = document.createElement('span');
                 chip.className = 'card-tag';
                 chip.style.background = tag.color;
                 chip.textContent = tag.name;
-                chip.title = TAG_CATEGORY_LABELS[cat] + '：' + tag.name;
+                chip.title = getCategoryLabel(cat) + '：' + tag.name;
                 tagsWrap.appendChild(chip);
                 total++;
             });
@@ -2710,10 +2751,13 @@ function bindConnectorPropertyEvents(conn) {
 function renderTagChecker(comp) {
     const wrap = document.getElementById('tag-checker'); if (!wrap) return;
     wrap.className = 'tag-checker'; wrap.innerHTML = '';
-    if (!comp.props.assignedTags) comp.props.assignedTags = { audience: [], level: [], attribute: [], topic: [], format: [] };
-    TAG_CATEGORY_KEYS.forEach(cat => {
+    if (!comp.props.assignedTags) comp.props.assignedTags = {};
+    getAllCategoryKeys().forEach(cat => {
+        if (!Array.isArray(comp.props.assignedTags[cat])) comp.props.assignedTags[cat] = [];
+    });
+    getAllCategoryKeys().forEach(cat => {
         const catWrap = document.createElement('div'); catWrap.className = 'tag-checker-cat';
-        const lbl = document.createElement('div'); lbl.className = 'tag-checker-cat-label'; lbl.textContent = TAG_CATEGORY_LABELS[cat];
+        const lbl = document.createElement('div'); lbl.className = 'tag-checker-cat-label'; lbl.textContent = getCategoryLabel(cat);
         catWrap.appendChild(lbl);
         const row = document.createElement('div'); row.className = 'tag-checker-row';
         const lib = projectData.tagLibrary[cat] || [];
@@ -3034,10 +3078,10 @@ function showCardHoverPreview(comp, e) {
     const wrap = document.getElementById('hover-preview');
     const aggregate = aggregateCardTags(comp);
     let html = `<div class="hover-preview-title">${escapeHtml(comp.props.title || '未命名')}</div>`;
-    TAG_CATEGORY_KEYS.forEach(cat => {
+    getAllCategoryKeys().forEach(cat => {
         const ids = aggregate[cat];
         if (!ids || ids.length === 0) return;
-        html += `<div class="hover-preview-section">${TAG_CATEGORY_LABELS[cat]}</div><div class="hover-preview-tags">`;
+        html += `<div class="hover-preview-section">${escapeHtml(getCategoryLabel(cat))}</div><div class="hover-preview-tags">`;
         ids.forEach(id => {
             const tag = findTagById(cat, id); if (!tag) return;
             html += `<span class="hover-preview-tag" style="background:${tag.color};">${escapeHtml(tag.name)}</span>`;
@@ -3075,12 +3119,14 @@ function hideHoverPreview() {
 }
 function aggregateCardTags(comp) {
     // 卡片自身標籤 + 所有班名標籤聯集（去重）
-    const result = { audience: new Set(), level: new Set(), attribute: new Set(), topic: new Set(), format: new Set() };
+    const allKeys = getAllCategoryKeys();
+    const result = {};
+    allKeys.forEach(k => result[k] = new Set());
     const at = comp.props.assignedTags || {};
-    TAG_CATEGORY_KEYS.forEach(cat => (at[cat] || []).forEach(id => result[cat].add(id)));
+    allKeys.forEach(cat => (at[cat] || []).forEach(id => result[cat].add(id)));
     (comp.props.classes || []).forEach(cl => {
         if (!cl.tags) return;
-        TAG_CATEGORY_KEYS.forEach(cat => {
+        allKeys.forEach(cat => {
             (cl.tags[cat] || []).forEach(name => {
                 const tag = findTagByName(cat, name);
                 if (tag) result[cat].add(tag.id);
@@ -3088,7 +3134,7 @@ function aggregateCardTags(comp) {
         });
     });
     const out = {};
-    TAG_CATEGORY_KEYS.forEach(cat => out[cat] = Array.from(result[cat]));
+    allKeys.forEach(cat => out[cat] = Array.from(result[cat]));
     return out;
 }
 
@@ -3304,22 +3350,128 @@ function pasteStyle(comp) {
 // ============================================================
 function openTagManager() {
     activeTagManagerCat = 'audience';
-    document.querySelectorAll('.tag-tab').forEach(t => t.classList.toggle('active', t.dataset.tagcat === 'audience'));
+    renderTagManagerTabs();
+    renderTagManagerCatEdit();
     renderTagManagerList();
     document.getElementById('tag-manager-overlay').style.display = 'flex';
 }
-function setupTagManagerModal() {
-    document.querySelectorAll('.tag-tab').forEach(tab => {
-        tab.addEventListener('click', () => {
-            activeTagManagerCat = tab.dataset.tagcat;
-            document.querySelectorAll('.tag-tab').forEach(t => t.classList.toggle('active', t === tab));
+function renderTagManagerTabs() {
+    const wrap = document.getElementById('tag-manager-tabs');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    getAllCategoryKeys().forEach(key => {
+        const btn = document.createElement('button');
+        btn.className = 'tag-tab' + (key === activeTagManagerCat ? ' active' : '');
+        btn.dataset.tagcat = key;
+        btn.textContent = getCategoryLabel(key);
+        if (!isBuiltinCategory(key)) btn.title = '自訂類別（可改名／刪除）';
+        btn.addEventListener('click', () => {
+            activeTagManagerCat = key;
+            renderTagManagerTabs();
+            renderTagManagerCatEdit();
             renderTagManagerList();
         });
+        wrap.appendChild(btn);
+    });
+    // 「＋ 新增類別」按鈕
+    const customCount = getCustomCategories().length;
+    const addBtn = document.createElement('button');
+    addBtn.className = 'tag-tab tag-tab-add';
+    addBtn.style.cssText = 'background:rgba(99,102,241,0.12);color:#4f46e5;font-weight:600;';
+    addBtn.textContent = `＋ 新增類別 (${customCount}/${MAX_CUSTOM_CATEGORIES})`;
+    if (customCount >= MAX_CUSTOM_CATEGORIES) {
+        addBtn.disabled = true;
+        addBtn.style.opacity = '0.45';
+        addBtn.style.cursor = 'not-allowed';
+        addBtn.title = `自訂類別已達上限（${MAX_CUSTOM_CATEGORIES} 個）`;
+    } else {
+        addBtn.addEventListener('click', () => {
+            const defaultLetter = String.fromCharCode(70 + customCount); // F, G
+            const label = prompt(`輸入新類別名稱（建議格式：${defaultLetter}. 〇〇）：`, `${defaultLetter}. `);
+            if (!label) return;
+            const trimmed = label.trim();
+            if (!trimmed) return;
+            const key = generateCustomCategoryKey();
+            projectData.customTagCategories.push({ key, label: trimmed });
+            projectData.tagLibrary[key] = [];
+            // 為所有現存課程類別卡片補上 assignedTags 空陣列
+            projectData.components.forEach(c => {
+                if (c.type === 'course-category') {
+                    if (!c.props.assignedTags) c.props.assignedTags = {};
+                    c.props.assignedTags[key] = [];
+                    (c.props.classes || []).forEach(cl => {
+                        if (cl.tags && !Array.isArray(cl.tags[key])) cl.tags[key] = [];
+                    });
+                }
+            });
+            activeTagManagerCat = key;
+            scheduleSaveDraft();
+            renderTagManagerTabs();
+            renderTagManagerCatEdit();
+            renderTagManagerList();
+            toast(`已新增類別「${trimmed}」`, 'success');
+        });
+    }
+    wrap.appendChild(addBtn);
+}
+function renderTagManagerCatEdit() {
+    const renameInput = document.getElementById('tag-cat-rename');
+    const deleteBtn = document.getElementById('tag-cat-delete-btn');
+    if (!renameInput) return;
+    renameInput.value = getCategoryLabel(activeTagManagerCat);
+    if (isBuiltinCategory(activeTagManagerCat)) {
+        deleteBtn.style.display = 'none';
+    } else {
+        deleteBtn.style.display = '';
+    }
+}
+function setupTagManagerModal() {
+    // 重命名類別
+    document.getElementById('tag-cat-rename-btn').addEventListener('click', () => {
+        const newLabel = document.getElementById('tag-cat-rename').value.trim();
+        if (!newLabel) { toast('類別名稱不能為空', 'warning'); return; }
+        if (isBuiltinCategory(activeTagManagerCat)) {
+            projectData.builtinCategoryLabels[activeTagManagerCat] = newLabel;
+        } else {
+            const c = projectData.customTagCategories.find(x => x.key === activeTagManagerCat);
+            if (c) c.label = newLabel;
+        }
+        scheduleSaveDraft();
+        renderTagManagerTabs();
+        renderCanvas();
+        toast('類別名稱已更新', 'success');
+    });
+    // 刪除自訂類別
+    document.getElementById('tag-cat-delete-btn').addEventListener('click', () => {
+        if (isBuiltinCategory(activeTagManagerCat)) return;
+        const label = getCategoryLabel(activeTagManagerCat);
+        const tagCount = (projectData.tagLibrary[activeTagManagerCat] || []).length;
+        if (!confirm(`確定刪除自訂類別「${label}」？\n此類別下的 ${tagCount} 個標籤也會一併移除，所有卡片與班名上的此類標籤也會清除。\n（內建 A-E 類不會受影響）`)) return;
+        const delKey = activeTagManagerCat;
+        // 從卡片與班名中移除此類標籤
+        projectData.components.forEach(c => {
+            if (c.type === 'course-category') {
+                if (c.props.assignedTags && c.props.assignedTags[delKey]) delete c.props.assignedTags[delKey];
+                (c.props.classes || []).forEach(cl => {
+                    if (cl.tags && cl.tags[delKey]) delete cl.tags[delKey];
+                });
+            }
+        });
+        delete projectData.tagLibrary[delKey];
+        projectData.customTagCategories = projectData.customTagCategories.filter(x => x.key !== delKey);
+        activeTagManagerCat = 'audience';
+        scheduleSaveDraft();
+        renderTagManagerTabs();
+        renderTagManagerCatEdit();
+        renderTagManagerList();
+        renderCanvas();
+        toast(`已刪除類別「${label}」`, 'success');
     });
     document.getElementById('tag-add-btn').addEventListener('click', () => {
         const name = document.getElementById('tag-add-name').value.trim();
         const color = document.getElementById('tag-add-color').value;
         if (!name) { toast('請輸入標籤名稱', 'warning'); return; }
+        if (!projectData.tagLibrary[activeTagManagerCat]) projectData.tagLibrary[activeTagManagerCat] = [];
         projectData.tagLibrary[activeTagManagerCat].push({ id: 't' + (tagIdCounter++), name, color });
         document.getElementById('tag-add-name').value = '';
         renderTagManagerList(); scheduleSaveDraft();
@@ -3502,9 +3654,9 @@ function openTagPicker() { populateTagPicker(); document.getElementById('tag-pic
 function populateTagPicker() {
     const grid = document.getElementById('tag-picker-grid');
     grid.innerHTML = '';
-    TAG_CATEGORY_KEYS.forEach(cat => {
+    getAllCategoryKeys().forEach(cat => {
         const wrap = document.createElement('div');
-        const title = document.createElement('div'); title.className = 'tag-picker-cat-title'; title.textContent = TAG_CATEGORY_LABELS[cat];
+        const title = document.createElement('div'); title.className = 'tag-picker-cat-title'; title.textContent = getCategoryLabel(cat);
         wrap.appendChild(title);
         const row = document.createElement('div'); row.className = 'tag-picker-row';
         const tags = projectData.tagLibrary[cat] || [];
@@ -4784,11 +4936,15 @@ async function startAIClassify() {
             return;
         }
 
+        // 把當下所有分類（含自訂）的 label 傳給 AI 使用
+        const categoryLabels = {};
+        getAllCategoryKeys().forEach(k => { categoryLabels[k] = getCategoryLabel(k); });
+
         let r;
         if (mode === 'classify') {
             r = await AppAI.classifyClasses(
                 uploadState.classNames, subject, userPrompt, providerId, model,
-                projectData.tagLibrary, { signal: controller.signal }
+                projectData.tagLibrary, { signal: controller.signal, categoryLabels }
             );
         } else {
             // scaffold-empty 或 scaffold-inspired
@@ -4798,7 +4954,7 @@ async function startAIClassify() {
                 {
                     signal: controller.signal,
                     minMain, maxMain, minSub, maxSub,
-                    attachTags, inspirationNames
+                    attachTags, inspirationNames, categoryLabels
                 }
             );
         }
@@ -4863,7 +5019,7 @@ function applyClassificationResult(parsed, subject, opts) {
             subCard.style.borderColor = palCols.sub;
             // scaffold 模式：把 sub.tags（若 AI 有附）寫到子卡的 assignedTags 上
             if (isScaffold && sub.tags && typeof sub.tags === 'object') {
-                TAG_CATEGORY_KEYS.forEach(cat => {
+                getAllCategoryKeys().forEach(cat => {
                     if (Array.isArray(sub.tags[cat])) {
                         subCard.props.assignedTags[cat] = sub.tags[cat].slice();
                     }
@@ -4876,7 +5032,7 @@ function applyClassificationResult(parsed, subject, opts) {
                         id: 'cls' + (classIdCounter++),
                         name: cls.name,
                         note: '',
-                        tags: cls.tags || { audience: [], level: [], attribute: [], topic: [], format: [] }
+                        tags: cls.tags || (function(){ const t = {}; getAllCategoryKeys().forEach(k => t[k] = []); return t; })()
                     });
                 });
             }
@@ -4934,7 +5090,9 @@ function setupClassPopupModal() {
     document.getElementById('class-popup-overlay').addEventListener('click', (e) => { if (e.target.id === 'class-popup-overlay') document.getElementById('class-popup-overlay').style.display = 'none'; });
     document.getElementById('btn-add-class').addEventListener('click', () => {
         const card = getComponent(activePopupCardId); if (!card) return;
-        const cl = { id: 'cls' + (classIdCounter++), name: '新班名', note: '', tags: { audience: [], level: [], attribute: [], topic: [], format: [] } };
+        const initialTags = {};
+        getAllCategoryKeys().forEach(k => initialTags[k] = []);
+        const cl = { id: 'cls' + (classIdCounter++), name: '新班名', note: '', tags: initialTags };
         card.props.classes.push(cl);
         renderClassPopup(); renderCanvas(); scheduleSaveDraft();
         openClassEdit(card.id, cl.id);
@@ -5024,13 +5182,13 @@ function buildClassRow(cl, cardId) {
     row.style.minHeight = ROW_HEIGHT + 'px';
     const name = document.createElement('div'); name.className = 'class-row-name'; name.textContent = cl.name || '(無名)';
     const tags = document.createElement('div'); tags.className = 'class-row-tags';
-    TAG_CATEGORY_KEYS.forEach(cat => {
+    getAllCategoryKeys().forEach(cat => {
         (cl.tags && cl.tags[cat] || []).forEach(tagName => {
             const tag = findTagByName(cat, tagName);
             const chip = document.createElement('span'); chip.className = 'class-row-tag';
             chip.textContent = tagName;
             chip.style.background = tag ? tag.color : '#94a3b8';
-            chip.title = TAG_CATEGORY_LABELS[cat];
+            chip.title = getCategoryLabel(cat);
             tags.appendChild(chip);
         });
     });
@@ -5111,7 +5269,8 @@ function openClassEdit(cardId, classId) {
     const card = getComponent(cardId); if (!card) return;
     const cls = card.props.classes.find(c => c.id === classId); if (!cls) return;
     classEditState = { cardId, classId, draft: JSON.parse(JSON.stringify(cls)) };
-    if (!classEditState.draft.tags) classEditState.draft.tags = { audience: [], level: [], attribute: [], topic: [], format: [] };
+    if (!classEditState.draft.tags) classEditState.draft.tags = {};
+    getAllCategoryKeys().forEach(k => { if (!Array.isArray(classEditState.draft.tags[k])) classEditState.draft.tags[k] = []; });
     document.getElementById('class-edit-title').textContent = '編輯班名 - ' + (cls.name || '');
     document.getElementById('class-edit-name').value = cls.name || '';
     document.getElementById('class-edit-note').value = cls.note || '';
@@ -5197,9 +5356,9 @@ function setupClassEditModal() {
 function renderClassEditTags() {
     const wrap = document.getElementById('class-edit-tags');
     wrap.innerHTML = '';
-    TAG_CATEGORY_KEYS.forEach(cat => {
+    getAllCategoryKeys().forEach(cat => {
         const catWrap = document.createElement('div'); catWrap.className = 'tag-checker-cat';
-        const lbl = document.createElement('div'); lbl.className = 'tag-checker-cat-label'; lbl.textContent = TAG_CATEGORY_LABELS[cat];
+        const lbl = document.createElement('div'); lbl.className = 'tag-checker-cat-label'; lbl.textContent = getCategoryLabel(cat);
         catWrap.appendChild(lbl);
         const row = document.createElement('div'); row.className = 'tag-checker-row';
         const lib = projectData.tagLibrary[cat] || [];
@@ -5390,7 +5549,9 @@ async function exportPDF() {
 function exportExcel() {
     try {
         if (!window.XLSX) { toast('SheetJS 未載入', 'error'); return; }
-        const rows = [['班名', '主分類', '子分類', 'A.對象', 'B.等級', 'C.屬性', 'D.主題', 'E.形式']];
+        const allKeys = getAllCategoryKeys();
+        const headerRow = ['班名', '主分類', '子分類', ...allKeys.map(k => getCategoryLabel(k))];
+        const rows = [headerRow];
         // 走訪 connectors 找父子關係
         const cardById = {};
         projectData.components.forEach(c => { if (c.type === 'course-category') cardById[c.id] = c; });
@@ -5406,16 +5567,8 @@ function exportExcel() {
             const mainName = isMain ? card.props.title : (parent ? parent.props.title : '');
             const subName = isMain ? '' : card.props.title;
             (card.props.classes || []).forEach(cl => {
-                rows.push([
-                    cl.name || '',
-                    mainName || '',
-                    subName || '',
-                    (cl.tags && cl.tags.audience || []).join(', '),
-                    (cl.tags && cl.tags.level || []).join(', '),
-                    (cl.tags && cl.tags.attribute || []).join(', '),
-                    (cl.tags && cl.tags.topic || []).join(', '),
-                    (cl.tags && cl.tags.format || []).join(', ')
-                ]);
+                const tagCols = allKeys.map(k => (cl.tags && cl.tags[k] || []).join(', '));
+                rows.push([cl.name || '', mainName || '', subName || '', ...tagCols]);
             });
         });
         const ws = XLSX.utils.aoa_to_sheet(rows);
@@ -5445,15 +5598,16 @@ function exportMarkdown() {
             md += `${prefix} ${card.props.title || '未命名'}\n\n`;
             if (card.props.subtitle) md += `> ${card.props.subtitle}\n\n`;
             const at = card.props.assignedTags || {};
-            const tagSummary = TAG_CATEGORY_KEYS.filter(cat => (at[cat] || []).length > 0).map(cat => {
+            const allKeys = getAllCategoryKeys();
+            const tagSummary = allKeys.filter(cat => (at[cat] || []).length > 0).map(cat => {
                 const names = (at[cat] || []).map(id => (findTagById(cat, id) || {}).name).filter(Boolean);
-                return `**${TAG_CATEGORY_LABELS[cat]}**：${names.join('、')}`;
+                return `**${getCategoryLabel(cat)}**：${names.join('、')}`;
             }).join(' / ');
             if (tagSummary) md += `_卡片標籤：${tagSummary}_\n\n`;
             (card.props.classes || []).forEach(cl => {
                 md += `- **${cl.name}**`;
                 const tags = [];
-                TAG_CATEGORY_KEYS.forEach(cat => { (cl.tags && cl.tags[cat] || []).forEach(n => tags.push(`\`${TAG_CATEGORY_LABELS[cat][0]}:${n}\``)); });
+                allKeys.forEach(cat => { (cl.tags && cl.tags[cat] || []).forEach(n => tags.push(`\`${getCategoryLabel(cat)[0]}:${n}\``)); });
                 if (tags.length) md += ' ' + tags.join(' ');
                 if (cl.note) md += ` _(${cl.note})_`;
                 md += '\n';
@@ -5694,11 +5848,25 @@ function buildViewerScript() {
     const assets = window.EMBEDDED_ASSETS;
     let viewportZoom = 1;
     let currentViewMode = (window.EMBEDDED_VIEW_MODE === 'skeleton') ? 'skeleton' : 'full';
-    const TAG_CATEGORY_KEYS = ${JSON.stringify(TAG_CATEGORY_KEYS)};
-    const TAG_CATEGORY_LABELS = ${JSON.stringify(TAG_CATEGORY_LABELS)};
+    // 內建 5 類 + 自訂類別合併
+    const TAG_CATEGORY_KEYS = ${JSON.stringify(getAllCategoryKeys())};
+    const TAG_CATEGORY_LABELS = (function(){
+        const labels = {};
+        TAG_CATEGORY_KEYS.forEach(k => {
+            const builtinLabels = ${JSON.stringify(TAG_CATEGORY_LABELS)};
+            const builtinOverride = (projectData && projectData.builtinCategoryLabels) || {};
+            if (builtinLabels[k]) labels[k] = builtinOverride[k] || builtinLabels[k];
+            else {
+                const c = ((projectData && projectData.customTagCategories) || []).find(x => x.key === k);
+                labels[k] = c ? c.label : k;
+            }
+        });
+        return labels;
+    })();
 
     // 篩選狀態：每個分類存放被選中的「標籤名稱」陣列
-    const activeFilters = { audience: [], level: [], attribute: [], topic: [], format: [] };
+    const activeFilters = {};
+    TAG_CATEGORY_KEYS.forEach(k => activeFilters[k] = []);
     let filteredView = null; // { visibleCardIds:Set, classMatches:Object<id, Class[]>, totalClasses, matchedClasses }
     function findTagById(cat, id){ if(!projectData.tagLibrary[cat]) return null; return projectData.tagLibrary[cat].find(t=>t.id===id); }
     function escapeHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }

@@ -273,12 +273,16 @@ window.AppAI = (function () {
     // ============================================================
     // Prompt 構建
     // ============================================================
-    function buildClassifyPrompt(rawClassNames, subject, userPrompt, tagLibrary) {
-        const tagsHint = ['audience', 'level', 'attribute', 'topic', 'format'].map(cat => {
+    function buildClassifyPrompt(rawClassNames, subject, userPrompt, tagLibrary, categoryLabels) {
+        const labels = categoryLabels && typeof categoryLabels === 'object' && Object.keys(categoryLabels).length > 0
+            ? categoryLabels
+            : { audience: 'A.對象', level: 'B.等級', attribute: 'C.屬性', topic: 'D.主題', format: 'E.形式' };
+        const keys = Object.keys(labels);
+        const tagsHint = keys.map(cat => {
             const lib = (tagLibrary && tagLibrary[cat]) || [];
-            const labels = { audience: 'A.對象', level: 'B.等級', attribute: 'C.屬性', topic: 'D.主題', format: 'E.形式' };
             return `${labels[cat]}：${lib.map(t => t.name).join('、') || '（無）'}`;
         }).join('\n');
+        const exampleTagsBlock = keys.map(k => `"${k}": []`).join(', ');
 
         const categoryGuide = `
 你是一個課程分類助手。請依據「${subject}」這個學科，把下列班名歸類成「主分類 → 子分類 → 班名」的三層樹。
@@ -297,7 +301,7 @@ ${tagsHint}
         {
           "name": "子分類名",
           "classes": [
-            { "name": "班名", "tags": { "audience": ["全員"], "level": ["基礎"], "attribute": ["善"], "topic": ["生成式AI"], "format": ["一般課程"] } }
+            { "name": "班名", "tags": { ${exampleTagsBlock} } }
           ]
         }
       ]
@@ -473,9 +477,12 @@ ${tagsHint}
     // ============================================================
     function buildScaffoldPrompt(subject, userPrompt, tagLibrary, opts) {
         opts = opts || {};
-        const tagsHint = ['audience', 'level', 'attribute', 'topic', 'format'].map(cat => {
+        const labels = opts.categoryLabels && typeof opts.categoryLabels === 'object' && Object.keys(opts.categoryLabels).length > 0
+            ? opts.categoryLabels
+            : { audience: 'A.對象', level: 'B.等級', attribute: 'C.屬性', topic: 'D.主題', format: 'E.形式' };
+        const keys = Object.keys(labels);
+        const tagsHint = keys.map(cat => {
             const lib = (tagLibrary && tagLibrary[cat]) || [];
-            const labels = { audience: 'A.對象', level: 'B.等級', attribute: 'C.屬性', topic: 'D.主題', format: 'E.形式' };
             return `${labels[cat]}：${lib.map(t => t.name).join('、') || '（無）'}`;
         }).join('\n');
 
@@ -532,8 +539,8 @@ ${scaleHint}${tagsBlock}${inspirationBlock}${userExtra}
       "name": "主分類名",
       "subcategories": [
         {
-          "name": "子分類名",${attachTags ? `
-          "tags": { "audience": ["全員"], "level": ["基礎"], "attribute": ["善"], "topic": ["生成式AI"], "format": ["一般課程"] },` : ''}
+          "name":           "子分類名",${attachTags ? `
+          "tags": { ${keys.map(k => `"${k}": []`).join(', ')} },` : ''}
           "classes": []
         }
       ]
@@ -550,7 +557,7 @@ ${scaleHint}${tagsBlock}${inspirationBlock}${userExtra}
     async function classifyClasses(rawClassNames, subject, userPrompt, providerId, model, tagLibrary, opts) {
         opts = opts || {};
         const provider = getProvider(providerId);
-        const prompt = buildClassifyPrompt(rawClassNames, subject, userPrompt, tagLibrary);
+        const prompt = buildClassifyPrompt(rawClassNames, subject, userPrompt, tagLibrary, opts.categoryLabels);
 
         // 快取 key
         const cacheKey = await sha256(JSON.stringify({ p: providerId, m: model, s: subject, u: userPrompt, n: rawClassNames }));
