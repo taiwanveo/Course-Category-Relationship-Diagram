@@ -1607,8 +1607,8 @@ function createComponentElement(comp) {
 function addPropertyButton(div, comp) {
     const btn = document.createElement('button');
     btn.className = 'comp-prop-btn editor-only';
-    btn.title = '開啟屬性面板';
-    btn.setAttribute('aria-label', '開啟屬性面板');
+    btn.title = '開啟此元件屬性（Shift-click：批次屬性面板）';
+    btn.setAttribute('aria-label', '開啟此元件屬性面板');
     btn.tabIndex = -1;
     btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="8.5" r="0.6" fill="currentColor"/><line x1="12" y1="11.5" x2="12" y2="16.5"/></svg>';
     // 阻止冒泡以免又觸發畫布的選取／拖曳邏輯
@@ -1616,16 +1616,22 @@ function addPropertyButton(div, comp) {
     btn.addEventListener('click', (e) => {
         e.stopPropagation();
         e.preventDefault();
-        // 若此元件已在多選範圍中 → 保持多選並開啟「批次屬性面板」
-        if (selectedComponentIds && selectedComponentIds.size > 1 && selectedComponentIds.has(comp.id)) {
+        const inMulti = selectedComponentIds && selectedComponentIds.size > 1 && selectedComponentIds.has(comp.id);
+        // Shift / Alt + 點擊：在多選/群組情境下開啟「批次屬性面板」
+        if (inMulti && (e.shiftKey || e.altKey)) {
             renderMultiSelectPropertyPanel();
-        } else {
-            // 否則切換為單選此元件並開啟屬性面板
-            selectedComponentIds = new Set([comp.id]);
-            selectedComponentId = comp.id;
-            refreshSelectionVisuals();
-            updatePropertyPanel(comp);
+            showPropertyPanel();
+            return;
         }
+        // 預設：永遠開啟「此元件」的單張屬性面板
+        // - 若目前是多選/群組：保留 selectedComponentIds（群組外框依然顯示），只更新單張內容與 anchor
+        // - 若目前無多選：把選取重設為這一個元件
+        if (!inMulti) {
+            selectedComponentIds = new Set([comp.id]);
+        }
+        selectedComponentId = comp.id;
+        refreshSelectionVisuals();
+        updatePropertyPanel(comp);
         showPropertyPanel();
     });
     div.appendChild(btn);
@@ -3460,6 +3466,17 @@ function showComponentContextMenu(e, comp) {
     // 群組相關（多選 / 已群組時才有意義）
     const isMulti = selectedComponentIds.size > 1 && selectedComponentIds.has(comp.id);
     if (isMulti) {
+        items.push({ separator: true });
+        items.push({ label: `批次屬性面板（${selectedComponentIds.size} 個元件）`, icon: '⊞', action: () => {
+            renderMultiSelectPropertyPanel();
+            showPropertyPanel();
+        }});
+        items.push({ label: '此元件單張屬性', icon: '🔧', action: () => {
+            selectedComponentId = comp.id;
+            refreshSelectionVisuals();
+            updatePropertyPanel(comp);
+            showPropertyPanel();
+        }});
         items.push({ separator: true });
         const comps = Array.from(selectedComponentIds).map(id => getComponent(id)).filter(Boolean);
         const groupIds = new Set(comps.map(c => c.groupId).filter(Boolean));
