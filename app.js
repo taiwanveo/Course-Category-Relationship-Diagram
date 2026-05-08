@@ -5313,17 +5313,162 @@ function applyClassificationResult(parsed, subject, opts) {
 }
 
 // ============================================================
-// 班名 Popup
+// 班名 / 次分類 Popup（主分類顯示子卡片，葉節點顯示班名）
 // ============================================================
-function openClassPopup(cardId) {
+let popupViewMode = 'leaf';   // 'leaf' = 班名清單 / 'parent' = 次分類清單
+let popupNavStack = [];       // 麵包屑導航歷史（cardId 陣列）
+
+function getChildCardsOf(cardId) {
+    if (!projectData) return [];
+    const childIds = projectData.connectors
+        .filter(cn => cn.fromComponentId === cardId)
+        .map(cn => cn.toComponentId);
+    return childIds
+        .map(id => getComponent(id))
+        .filter(c => c && c.type === 'course-category');
+}
+
+function openClassPopup(cardId, opts) {
+    opts = opts || {};
     const card = getComponent(cardId);
     if (!card || card.type !== 'course-category') return;
     activePopupCardId = cardId;
-    document.getElementById('class-popup-title').textContent = '班名清單 - ' + (card.props.title || '未命名類別');
-    document.getElementById('class-popup-search').value = '';
+    if (!opts.fromNav) popupNavStack = [cardId];
+
+    const children = getChildCardsOf(cardId);
+    popupViewMode = children.length > 0 ? 'parent' : 'leaf';
+
+    renderPopupHeader(card);
+
+    const searchInput = document.getElementById('class-popup-search');
+    searchInput.value = '';
+    searchInput.placeholder = popupViewMode === 'parent' ? '🔎 搜尋次分類名稱' : '🔎 搜尋班名';
+
+    const addBtn = document.getElementById('btn-add-class');
+    if (addBtn) addBtn.style.display = popupViewMode === 'parent' ? 'none' : '';
+
     document.getElementById('class-popup-overlay').style.display = 'flex';
-    renderClassPopup();
+    if (popupViewMode === 'parent') renderParentPopup();
+    else renderClassPopup();
     renderInspirationSection();
+}
+
+function renderPopupHeader(card) {
+    const titleEl = document.getElementById('class-popup-title');
+    let html = '';
+    if (popupNavStack.length > 1) {
+        html += '<div class="popup-breadcrumb">';
+        popupNavStack.forEach((id, idx) => {
+            const c = getComponent(id);
+            if (!c) return;
+            if (idx > 0) html += '<span class="popup-breadcrumb-sep">›</span>';
+            if (idx === popupNavStack.length - 1) {
+                html += `<span class="popup-breadcrumb-current">${escapeHtml(c.props.title || '未命名')}</span>`;
+            } else {
+                html += `<a href="#" class="popup-breadcrumb-link" data-nav-idx="${idx}">${escapeHtml(c.props.title || '未命名')}</a>`;
+            }
+        });
+        html += '</div>';
+    }
+    const label = popupViewMode === 'parent' ? '次分類清單' : '班名清單';
+    html += `<span class="popup-title-text">${escapeHtml(label)} - ${escapeHtml(card.props.title || '未命名類別')}</span>`;
+    titleEl.innerHTML = html;
+    titleEl.querySelectorAll('.popup-breadcrumb-link').forEach(a => {
+        a.addEventListener('click', (e) => {
+            e.preventDefault();
+            const idx = parseInt(a.dataset.navIdx, 10);
+            if (popupNavStack[idx]) {
+                const targetId = popupNavStack[idx];
+                popupNavStack = popupNavStack.slice(0, idx + 1);
+                openClassPopup(targetId, { fromNav: true });
+            }
+        });
+    });
+}
+
+function renderParentPopup() {
+    const children = getChildCardsOf(activePopupCardId);
+    const filter = (document.getElementById('class-popup-search').value || '').toLowerCase();
+    const filtered = filter ? children.filter(c => (c.props.title || '').toLowerCase().includes(filter)) : children;
+    document.getElementById('class-popup-count').textContent =
+        `共 ${children.length} 個次分類` + (filter ? ` / 過濾後 ${filtered.length}` : '');
+
+    const wrap = document.getElementById('class-popup-virtual');
+    const spacer = document.getElementById('class-popup-spacer');
+    const items = document.getElementById('class-popup-items');
+    spacer.style.height = '0px';
+    items.style.transform = '';
+    items.innerHTML = '';
+    wrap._filtered = filtered;
+    wrap._mode = 'parent';
+
+    if (filtered.length === 0) {
+        items.innerHTML = '<div class="class-row-empty">沒有次分類</div>';
+        return;
+    }
+    filtered.forEach(child => items.appendChild(buildSubCategoryRow(child)));
+}
+
+function buildSubCategoryRow(child) {
+    const row = document.createElement('div');
+    row.className = 'class-row class-row-sub';
+
+    const classCount = (child.props.classes || []).length;
+    const grandChildren = getChildCardsOf(child.id);
+    const isAlsoParent = grandChildren.length > 0;
+
+    const name = document.createElement('div');
+    name.className = 'class-row-name';
+    const titleStrong = document.createElement('strong');
+    titleStrong.textContent = child.props.title || '(未命名)';
+    const sub = document.createElement('div');
+    sub.className = 'class-row-name-sub';
+    sub.textContent = isAlsoParent
+        ? `📁 ${grandChildren.length} 個次分類`
+        : `📋 ${classCount} 個班名`;
+    name.appendChild(titleStrong);
+    name.appendChild(sub);
+
+    const tags = document.createElement('div');
+    tags.className = 'class-row-tags';
+    const at = child.props.assignedTags || {};
+    getAllCategoryKeys().forEach(cat => {
+        (at[cat] || []).forEach(tagId => {
+            const tag = findTagById(cat, tagId);
+            if (!tag) return;
+            const chip = document.createElement('span');
+            chip.className = 'class-row-tag';
+            chip.textContent = tag.name;
+            chip.style.background = tag.color;
+            chip.title = getCategoryLabel(cat);
+            tags.appendChild(chip);
+        });
+    });
+
+    const acts = document.createElement('div');
+    acts.className = 'class-row-actions';
+    const drillBtn = document.createElement('button');
+    drillBtn.className = 'btn btn-small btn-primary';
+    drillBtn.textContent = isAlsoParent ? '查看次分類 →' : '查看班名 →';
+    drillBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        popupNavStack.push(child.id);
+        openClassPopup(child.id, { fromNav: true });
+    });
+    acts.appendChild(drillBtn);
+
+    row.appendChild(name);
+    row.appendChild(tags);
+    row.appendChild(acts);
+
+    // 點 row 任意處（除了按鈕內部）也可以進入
+    row.addEventListener('click', (e) => {
+        if (e.target.closest('button')) return;
+        popupNavStack.push(child.id);
+        openClassPopup(child.id, { fromNav: true });
+    });
+
+    return row;
 }
 function setupShortcutsHelpModal() {
     const overlay = document.getElementById('shortcuts-help-overlay');
@@ -5355,8 +5500,14 @@ function setupClassPopupModal() {
         renderClassPopup(); renderCanvas(); scheduleSaveDraft();
         openClassEdit(card.id, cl.id);
     });
-    document.getElementById('class-popup-search').addEventListener('input', renderClassPopup);
-    document.getElementById('class-popup-virtual').addEventListener('scroll', virtualScrollUpdate);
+    document.getElementById('class-popup-search').addEventListener('input', () => {
+        if (popupViewMode === 'parent') renderParentPopup();
+        else renderClassPopup();
+    });
+    document.getElementById('class-popup-virtual').addEventListener('scroll', () => {
+        if (popupViewMode === 'parent') return; // 次分類清單不需虛擬捲動
+        virtualScrollUpdate();
+    });
     // 靈感班名：清空、複製
     document.getElementById('btn-inspiration-clear').addEventListener('click', () => {
         if (!projectData.inspirationClasses || !projectData.inspirationClasses.length) return;
@@ -6180,6 +6331,7 @@ function buildViewerScript() {
     let filteredView = null; // { visibleCardIds:Set, classMatches:Object<id, Class[]>, totalClasses, matchedClasses }
     function findTagById(cat, id){ if(!projectData.tagLibrary[cat]) return null; return projectData.tagLibrary[cat].find(t=>t.id===id); }
     function escapeHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+    function escapeAttr(s){ return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
     function applyBoard(){
         const c = document.getElementById('canvas');
         c.style.width = projectData.board.w + 'px'; c.style.height = projectData.board.h + 'px';
@@ -6257,8 +6409,12 @@ function buildViewerScript() {
                 if (total) div.appendChild(tagsW);
             }
             // dblclick popup：骨架模式不開啟（純展示）
-            if (cls.length && !isSkeleton) {
-                div.addEventListener('dblclick', () => openClassPopup(comp));
+            // 葉節點顯示班名清單；主分類（有子卡片）顯示次分類清單
+            if (!isSkeleton) {
+                const hasChildren = projectData.connectors.some(cn => cn.fromComponentId === comp.id);
+                if (cls.length || hasChildren) {
+                    div.addEventListener('dblclick', () => openClassPopup(comp));
+                }
             }
         } else if (comp.type === 'text') {
             div.textContent = comp.props.text || '';
@@ -6594,48 +6750,138 @@ function buildViewerScript() {
         }
     }
 
-    // ========== 班名 popup（套用篩選） ==========
+    // ========== 班名 / 次分類 popup（套用篩選；主分類顯示子卡片） ==========
+    function getChildCardsOfViewer(cardId){
+        return projectData.connectors
+            .filter(cn => cn.fromComponentId === cardId)
+            .map(cn => getComp(cn.toComponentId))
+            .filter(c => c && c.type === 'course-category');
+    }
     function openClassPopup(comp){
-        const cls = comp.props.classes || [];
+        const navStack = [comp.id];
         const overlay = document.createElement('div');
         overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:200;';
         overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
         const m = document.createElement('div');
         m.style.cssText = 'background:var(--bg-card);color:var(--text-primary);padding:20px;border-radius:14px;max-width:80vw;max-height:80vh;overflow:auto;min-width:480px;';
-        const filterOn = hasAnyFilter();
-        const matchedSet = new Set((filterOn && filteredView ? (filteredView.classMatchMap[comp.id] || []) : cls).map(c => c.id || c.name));
-        const visibleCount = filterOn ? matchedSet.size : cls.length;
-        let h = '<h2 style="margin-bottom:6px;">' + escapeHtml(comp.props.title || '') + '</h2>';
-        h += '<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">';
-        if (filterOn) h += '篩選結果：<b>' + visibleCount + '</b> / ' + cls.length + ' 個班名 · <a href="#" id="cls-show-all" style="color:var(--primary,#6366f1);">顯示全部</a>';
-        else h += '共 ' + cls.length + ' 個班名';
-        h += '</div>';
-        cls.forEach(cl => {
-            const match = !filterOn || matchedSet.has(cl.id || cl.name);
-            h += '<div class="cls-row ' + (match ? '' : 'cls-filtered') + '" style="padding:8px;border-bottom:1px solid var(--border);">';
-            h += '<div style="font-weight:600;">' + escapeHtml(cl.name || '') + '</div>';
-            const tagsEl = [];
-            TAG_CATEGORY_KEYS.forEach(cat => {
-                (cl.tags && cl.tags[cat] || []).forEach(name => {
-                    const t = (projectData.tagLibrary[cat] || []).find(x => x.name === name);
-                    const isHit = (activeFilters[cat] || []).indexOf(name) >= 0;
-                    tagsEl.push('<span class="cls-row-tag ' + (isHit ? 'cls-tag-hit' : '') + '" style="background:' + (t ? t.color : '#94a3b8') + ';">' + escapeHtml(name) + '</span>');
-                });
-            });
-            if (tagsEl.length) h += '<div style="margin-top:4px;">' + tagsEl.join('') + '</div>';
-            h += '</div>';
-        });
-        h += '<div style="text-align:right;margin-top:12px;"><button class="btn" id="cls-close">關閉</button></div>';
-        m.innerHTML = h;
         overlay.appendChild(m);
         document.body.appendChild(overlay);
-        m.querySelector('#cls-close').addEventListener('click', () => overlay.remove());
-        const showAll = m.querySelector('#cls-show-all');
-        if (showAll) showAll.addEventListener('click', (e) => {
-            e.preventDefault();
-            m.querySelectorAll('.cls-row.cls-filtered').forEach(el => el.classList.remove('cls-filtered'));
-            showAll.style.display = 'none';
-        });
+
+        function renderCurrent(){
+            const curId = navStack[navStack.length - 1];
+            const cur = getComp(curId);
+            if (!cur) { overlay.remove(); return; }
+            const children = getChildCardsOfViewer(curId);
+            const isParent = children.length > 0;
+
+            // 麵包屑
+            let h = '';
+            if (navStack.length > 1) {
+                h += '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);margin-bottom:6px;">';
+                navStack.forEach((id, idx) => {
+                    const c = getComp(id);
+                    if (!c) return;
+                    if (idx > 0) h += '<span style="opacity:0.6;font-size:14px;">›</span>';
+                    if (idx === navStack.length - 1) {
+                        h += '<span style="color:var(--text-primary);font-weight:600;padding:2px 6px;">' + escapeHtml(c.props.title || '未命名') + '</span>';
+                    } else {
+                        h += '<a href="#" data-vw-nav-idx="' + idx + '" style="color:var(--primary,#6366f1);text-decoration:none;padding:2px 6px;border-radius:4px;">' + escapeHtml(c.props.title || '未命名') + '</a>';
+                    }
+                });
+                h += '</div>';
+            }
+
+            const label = isParent ? '次分類清單' : '班名清單';
+            h += '<h2 style="margin-bottom:6px;">' + escapeHtml(label) + ' - ' + escapeHtml(cur.props.title || '') + '</h2>';
+
+            if (isParent) {
+                h += '<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">共 <b>' + children.length + '</b> 個次分類（點擊任一項可進入查看）</div>';
+                children.forEach(child => {
+                    const classCount = (child.props.classes || []).length;
+                    const grand = getChildCardsOfViewer(child.id);
+                    const alsoParent = grand.length > 0;
+                    h += '<div class="vw-sub-row" data-vw-child-id="' + escapeAttr(child.id) + '" style="display:flex;align-items:center;gap:12px;padding:14px 12px;border-bottom:1px solid var(--border);cursor:pointer;border-radius:8px;transition:background 0.15s;">';
+                    h += '<div style="flex:0 0 auto;min-width:200px;display:flex;flex-direction:column;gap:2px;">';
+                    h += '<strong style="font-size:15px;">' + escapeHtml(child.props.title || '(未命名)') + '</strong>';
+                    h += '<span style="font-size:12px;color:var(--text-muted);">' + (alsoParent ? ('📁 ' + grand.length + ' 個次分類') : ('📋 ' + classCount + ' 個班名')) + '</span>';
+                    h += '</div>';
+                    // 卡片貼的標籤
+                    const at = child.props.assignedTags || {};
+                    const chips = [];
+                    TAG_CATEGORY_KEYS.forEach(cat => {
+                        (at[cat] || []).forEach(tagId => {
+                            const t = (projectData.tagLibrary[cat] || []).find(x => x.id === tagId);
+                            if (!t) return;
+                            chips.push('<span class="cls-row-tag" style="background:' + t.color + ';">' + escapeHtml(t.name) + '</span>');
+                        });
+                    });
+                    h += '<div style="flex:1;display:flex;flex-wrap:wrap;gap:4px;">' + chips.join('') + '</div>';
+                    h += '<button class="btn" data-vw-drill="' + escapeAttr(child.id) + '" style="padding:4px 10px;font-size:12px;">' + (alsoParent ? '查看次分類 →' : '查看班名 →') + '</button>';
+                    h += '</div>';
+                });
+            } else {
+                const cls = cur.props.classes || [];
+                const filterOn = hasAnyFilter();
+                const matchedSet = new Set((filterOn && filteredView ? (filteredView.classMatchMap[cur.id] || []) : cls).map(c => c.id || c.name));
+                const visibleCount = filterOn ? matchedSet.size : cls.length;
+                h += '<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">';
+                if (filterOn) h += '篩選結果：<b>' + visibleCount + '</b> / ' + cls.length + ' 個班名 · <a href="#" id="cls-show-all" style="color:var(--primary,#6366f1);">顯示全部</a>';
+                else h += '共 ' + cls.length + ' 個班名';
+                h += '</div>';
+                cls.forEach(cl => {
+                    const match = !filterOn || matchedSet.has(cl.id || cl.name);
+                    h += '<div class="cls-row ' + (match ? '' : 'cls-filtered') + '" style="padding:8px;border-bottom:1px solid var(--border);">';
+                    h += '<div style="font-weight:600;">' + escapeHtml(cl.name || '') + '</div>';
+                    const tagsEl = [];
+                    TAG_CATEGORY_KEYS.forEach(cat => {
+                        (cl.tags && cl.tags[cat] || []).forEach(name => {
+                            const t = (projectData.tagLibrary[cat] || []).find(x => x.name === name);
+                            const isHit = (activeFilters[cat] || []).indexOf(name) >= 0;
+                            tagsEl.push('<span class="cls-row-tag ' + (isHit ? 'cls-tag-hit' : '') + '" style="background:' + (t ? t.color : '#94a3b8') + ';">' + escapeHtml(name) + '</span>');
+                        });
+                    });
+                    if (tagsEl.length) h += '<div style="margin-top:4px;">' + tagsEl.join('') + '</div>';
+                    h += '</div>';
+                });
+            }
+            h += '<div style="text-align:right;margin-top:12px;"><button class="btn" id="cls-close">關閉</button></div>';
+            m.innerHTML = h;
+            m.querySelector('#cls-close').addEventListener('click', () => overlay.remove());
+            const showAll = m.querySelector('#cls-show-all');
+            if (showAll) showAll.addEventListener('click', (e) => {
+                e.preventDefault();
+                m.querySelectorAll('.cls-row.cls-filtered').forEach(el => el.classList.remove('cls-filtered'));
+                showAll.style.display = 'none';
+            });
+            // 麵包屑導航：點擊上層連結
+            m.querySelectorAll('[data-vw-nav-idx]').forEach(a => {
+                a.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const idx = parseInt(a.dataset.vwNavIdx, 10);
+                    navStack.length = idx + 1;
+                    renderCurrent();
+                });
+            });
+            // 點擊次分類：往下鑽
+            m.querySelectorAll('[data-vw-child-id]').forEach(row => {
+                row.addEventListener('click', (e) => {
+                    if (e.target.closest('button[data-vw-drill]')) return;
+                    const id = row.dataset.vwChildId;
+                    if (id) { navStack.push(id); renderCurrent(); }
+                });
+                row.addEventListener('mouseenter', () => { row.style.background = 'var(--bg-elev-2)'; });
+                row.addEventListener('mouseleave', () => { row.style.background = ''; });
+            });
+            m.querySelectorAll('button[data-vw-drill]').forEach(b => {
+                b.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const id = b.dataset.vwDrill;
+                    if (id) { navStack.push(id); renderCurrent(); }
+                });
+            });
+        }
+
+        renderCurrent();
     }
 
     // 篩選按鈕／面板事件

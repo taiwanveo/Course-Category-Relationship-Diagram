@@ -2089,6 +2089,74 @@ body {
     font-size: 13px;
 }
 
+/* 次分類列 (主分類雙擊後顯示的子卡片清單) */
+.class-row-sub {
+    cursor: pointer;
+    padding: 14px 16px;
+    transition: background 0.15s ease, transform 0.1s ease;
+}
+.class-row-sub:hover {
+    background: var(--bg-elev-2);
+    transform: translateX(2px);
+}
+.class-row-sub .class-row-name {
+    min-width: 220px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.class-row-sub .class-row-name strong {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.class-row-name-sub {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-weight: 400;
+}
+
+/* Popup 標題：麵包屑 + 標題文字 */
+#class-popup-title {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.popup-breadcrumb {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+.popup-breadcrumb-link {
+    color: var(--primary);
+    text-decoration: none;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: background 0.15s ease;
+}
+.popup-breadcrumb-link:hover {
+    background: var(--bg-elev-2);
+    text-decoration: underline;
+}
+.popup-breadcrumb-current {
+    color: var(--text-primary);
+    font-weight: 600;
+    padding: 2px 6px;
+}
+.popup-breadcrumb-sep {
+    color: var(--text-muted);
+    opacity: 0.6;
+    font-size: 14px;
+}
+.popup-title-text {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
 /* 班名編輯彈窗的標籤勾選 */
 #class-edit-tags {
     display: flex;
