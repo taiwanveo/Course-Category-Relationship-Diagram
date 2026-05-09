@@ -3399,12 +3399,43 @@ function showCardHoverPreview(comp, e) {
 function moveHoverPreview(e) {
     const wrap = document.getElementById('hover-preview');
     if (!wrap || wrap.style.display === 'none') return;
-    let x = e.clientX + 16, y = e.clientY + 16;
     const r = wrap.getBoundingClientRect();
-    if (x + r.width > window.innerWidth) x = e.clientX - r.width - 16;
-    if (y + r.height > window.innerHeight) y = e.clientY - r.height - 16;
+    const W = window.innerWidth, H = window.innerHeight;
+    const margin = 8;   // 與視窗邊緣的最小間距
+    const gap = 16;     // 與滑鼠的距離
+    const cx = e.clientX, cy = e.clientY;
+
+    // 各方向是否有足夠空間放下整個 preview
+    const fitsRightX = (cx + gap + r.width)  <= (W - margin);
+    const fitsLeftX  = (cx - gap - r.width)  >= margin;
+    const fitsBelowY = (cy + gap + r.height) <= (H - margin);
+    const fitsAboveY = (cy - gap - r.height) >= margin;
+
+    let x, y;
+    // 優先序：四個角落（右下 → 左下 → 右上 → 左上）
+    if      (fitsRightX && fitsBelowY) { x = cx + gap;            y = cy + gap; }
+    else if (fitsLeftX  && fitsBelowY) { x = cx - gap - r.width;  y = cy + gap; }
+    else if (fitsRightX && fitsAboveY) { x = cx + gap;            y = cy - gap - r.height; }
+    else if (fitsLeftX  && fitsAboveY) { x = cx - gap - r.width;  y = cy - gap - r.height; }
+    // 四角都會被截斷時：改放滑鼠右側／左側（垂直置中、夾住到視窗範圍）
+    else if (fitsRightX) {
+        x = cx + gap;
+        y = Math.max(margin, Math.min(H - r.height - margin, cy - r.height / 2));
+    }
+    else if (fitsLeftX) {
+        x = cx - gap - r.width;
+        y = Math.max(margin, Math.min(H - r.height - margin, cy - r.height / 2));
+    }
+    // 連左右都不夠（例如 preview 比視窗還寬）：選空間較多的一邊並夾住
+    else {
+        x = (cx < W / 2)
+            ? Math.max(margin, W - r.width - margin)  // 滑鼠在左半 → 放右
+            : margin;                                  // 滑鼠在右半 → 放左
+        y = Math.max(margin, Math.min(H - r.height - margin, cy - r.height / 2));
+    }
+
     wrap.style.left = x + 'px';
-    wrap.style.top = y + 'px';
+    wrap.style.top  = y + 'px';
 }
 function hideHoverPreview() {
     hoverHideTimer = setTimeout(() => {

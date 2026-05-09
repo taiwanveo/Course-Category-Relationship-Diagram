@@ -2176,6 +2176,8 @@ body {
     box-shadow: var(--shadow-lg);
     z-index: 800;
     max-width: 320px;
+    max-height: calc(100vh - 24px);
+    overflow-y: auto;
     pointer-events: none;
     color: var(--text-primary);
 }
