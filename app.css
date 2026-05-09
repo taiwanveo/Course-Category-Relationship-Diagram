@@ -2796,6 +2796,81 @@ body.fullscreen-mode #app .filter-panel { display: flex; }
     z-index: 9999 !important;
 }
 
+/* 篩選結果 modal：類別卡片的階層樹（L/T/│ 連線） */
+.frm-tree { display: flex; flex-direction: column; }
+.frm-tree-row {
+    display: flex;
+    align-items: stretch;
+    margin-bottom: 4px;
+    position: relative;
+}
+.frm-tree-row:last-child { margin-bottom: 0; }
+.frm-tree-guide {
+    position: relative;
+    width: 22px;
+    flex: 0 0 22px;
+}
+/* 垂直線（祖先還有未繪製完的兄弟時） */
+.frm-tree-guide[data-g="vline"]::before,
+.frm-tree-guide[data-g="branch"]::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: -4px;       /* 跨過 row gap，與上一列的 vline 連起來 */
+    bottom: -4px;
+    border-left: 1.5px solid var(--frm-tree-color, #cbd5e1);
+}
+/* T 形分支：垂直線 + 中間水平往右臂 */
+.frm-tree-guide[data-g="branch"]::after,
+.frm-tree-guide[data-g="last"]::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 18px;       /* 與卡片標題垂直置中對齊 */
+    width: calc(50% + 4px);
+    border-top: 1.5px solid var(--frm-tree-color, #cbd5e1);
+}
+/* L 形末端：垂直線只到中間（不再往下） + 水平臂 */
+.frm-tree-guide[data-g="last"]::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: -4px;
+    height: 22px;    /* 從上一列底部延伸到本列的彎折點（18+4=22） */
+    border-left: 1.5px solid var(--frm-tree-color, #cbd5e1);
+}
+/* empty：祖先已是最後兄弟，不畫垂直線 */
+.frm-tree-guide[data-g="empty"]::before { content: none; }
+
+/* 樹形列中的卡片 */
+.frm-tree-row .frm-card-row {
+    flex: 1;
+    margin-bottom: 0 !important;
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.15s, transform 0.1s;
+}
+/* 「根」徽章 */
+.frm-root-badge {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    box-shadow: 0 1px 2px rgba(245,158,11,0.35);
+    letter-spacing: 1px;
+}
+/* 深色主題下樹線顏色稍微提亮 */
+[data-theme="dark"] .frm-tree-guide[data-g="vline"]::before,
+[data-theme="dark"] .frm-tree-guide[data-g="branch"]::before,
+[data-theme="dark"] .frm-tree-guide[data-g="last"]::before { border-left-color: #475569; }
+[data-theme="dark"] .frm-tree-guide[data-g="branch"]::after,
+[data-theme="dark"] .frm-tree-guide[data-g="last"]::after { border-top-color: #475569; }
+
 /* =============================================
    Minimap（縮圖）
    ============================================= */

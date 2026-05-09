@@ -5838,6 +5838,54 @@ function scrollEditorToComponent(id) {
     }
 }
 
+// 把命中的卡片依「父子連線」結構轉換成扁平樹列；每列含 depth + lastFlags（畫 L/T/│ 用）
+function buildEditorVisibleCardTree(visibleCards) {
+    const visibleSet = new Set(visibleCards.map(c => c.id));
+    const cardById = {}; visibleCards.forEach(c => cardById[c.id] = c);
+    const childrenOf = {}; visibleCards.forEach(c => childrenOf[c.id] = []);
+    const parentOf = {};
+    projectData.connectors.forEach(conn => {
+        if (visibleSet.has(conn.fromComponentId) && visibleSet.has(conn.toComponentId)) {
+            // 避免重複
+            if (childrenOf[conn.fromComponentId].indexOf(conn.toComponentId) < 0) {
+                childrenOf[conn.fromComponentId].push(conn.toComponentId);
+            }
+            parentOf[conn.toComponentId] = conn.fromComponentId;
+        }
+    });
+    const titleOf = (id) => (cardById[id] && cardById[id].props.title) || '';
+    Object.keys(childrenOf).forEach(k => childrenOf[k].sort((a, b) => titleOf(a).localeCompare(titleOf(b))));
+    // 根節點：在可見集合中沒有可見父卡的就是根
+    const roots = visibleCards.filter(c => !parentOf[c.id]).sort((a, b) => titleOf(a.id).localeCompare(titleOf(b.id)));
+    const rows = [];
+    const visited = new Set();
+    function walk(id, lastFlags) {
+        if (visited.has(id)) return; visited.add(id);
+        const card = cardById[id]; if (!card) return;
+        rows.push({ card, depth: lastFlags.length, lastFlags: lastFlags.slice(), isRoot: lastFlags.length === 0 });
+        const kids = childrenOf[id] || [];
+        kids.forEach((kid, idx) => walk(kid, lastFlags.concat([idx === kids.length - 1])));
+    }
+    roots.forEach(r => walk(r.id, []));
+    // 圖中有環或斷裂的卡也補上（當作根）
+    visibleCards.forEach(c => { if (!visited.has(c.id)) rows.push({ card: c, depth: 0, lastFlags: [], isRoot: true }); });
+    return rows;
+}
+
+// 為單列產生「樹形指示符欄位」HTML（vline / branch / last / empty）
+function renderTreeGuides(lastFlags) {
+    let html = '';
+    const d = lastFlags.length;
+    for (let i = 0; i < d; i++) {
+        const isLastCol = (i === d - 1);
+        let type;
+        if (isLastCol) type = lastFlags[i] ? 'last' : 'branch';
+        else           type = lastFlags[i] ? 'empty' : 'vline';
+        html += '<span class="frm-tree-guide" data-g="' + type + '"></span>';
+    }
+    return html;
+}
+
 // 開啟「篩選結果」modal：列出命中的類別卡片與班名
 function openEditorFilterResultsModal() {
     if (!editorFilteredView || !projectData) return;
@@ -5888,19 +5936,28 @@ function openEditorFilterResultsModal() {
     // 內容區
     h += '<div style="flex:1;overflow-y:auto;padding:14px 20px;">';
 
-    // 命中類別卡片
+    // 命中類別卡片（以階層樹呈現：根節點靠左，子節點以 L 形連線縮排）
     h += '<div style="margin-bottom:18px;">';
-    h += '<div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:8px;">📂 命中的類別卡片 (' + visible.size + ')</div>';
+    h += '<div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:8px;display:flex;align-items:center;gap:8px;">📂 命中的類別卡片 (' + visible.size + ')<span style="font-size:11px;font-weight:400;color:var(--text-muted);">（縮排表示父子階層）</span></div>';
     if (visibleCards.length === 0) {
         h += '<div style="color:var(--text-muted);font-size:13px;padding:8px 4px;">無</div>';
     } else {
-        visibleCards.forEach(c => {
-            const path = buildEditorCardPath(c.id, false);
-            h += '<div class="frm-card-row" data-card-id="' + escapeAttr(c.id) + '" title="點擊定位到畫布上" style="padding:8px 12px;border-radius:8px;border:1px solid var(--border);margin-bottom:6px;cursor:pointer;transition:background 0.15s, transform 0.1s;">';
-            h += '<div style="font-weight:600;font-size:14px;color:var(--text-primary);">' + escapeHtml(c.props.title || '(未命名)') + '</div>';
-            if (path) h += '<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">' + escapeHtml(path) + '</div>';
+        const treeRows = buildEditorVisibleCardTree(visibleCards);
+        h += '<div class="frm-tree">';
+        treeRows.forEach(({ card, depth, lastFlags, isRoot }) => {
+            h += '<div class="frm-tree-row">';
+            h += renderTreeGuides(lastFlags);
+            const rootBadge = isRoot ? '<span class="frm-root-badge" title="根節點（沒有父卡片）">根</span>' : '';
+            h += '<div class="frm-card-row frm-tree-card" data-card-id="' + escapeAttr(card.id) + '" title="點擊定位到畫布上">';
+            h += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><span style="font-weight:600;font-size:14px;color:var(--text-primary);">' + escapeHtml(card.props.title || '(未命名)') + '</span>' + rootBadge + '</div>';
+            if (!isRoot) {
+                const path = buildEditorCardPath(card.id, false);
+                if (path) h += '<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">' + escapeHtml(path) + '</div>';
+            }
+            h += '</div>';
             h += '</div>';
         });
+        h += '</div>';
     }
     h += '</div>';
 
@@ -6629,6 +6686,39 @@ async function exportHTML() {
 .comp-flash-locate {
     animation: compFlashLocate 1.8s ease-out;
     z-index: 9999 !important;
+}
+
+/* 篩選結果 modal：類別卡片的階層樹（L/T/│ 連線） */
+.frm-tree { display: flex; flex-direction: column; }
+.frm-tree-row { display: flex; align-items: stretch; margin-bottom: 4px; position: relative; }
+.frm-tree-row:last-child { margin-bottom: 0; }
+.frm-tree-guide { position: relative; width: 22px; flex: 0 0 22px; }
+.frm-tree-guide[data-g="vline"]::before,
+.frm-tree-guide[data-g="branch"]::before {
+    content: ''; position: absolute; left: 50%; top: -4px; bottom: -4px;
+    border-left: 1.5px solid var(--frm-tree-color, #cbd5e1);
+}
+.frm-tree-guide[data-g="branch"]::after,
+.frm-tree-guide[data-g="last"]::after {
+    content: ''; position: absolute; left: 50%; top: 18px;
+    width: calc(50% + 4px);
+    border-top: 1.5px solid var(--frm-tree-color, #cbd5e1);
+}
+.frm-tree-guide[data-g="last"]::before {
+    content: ''; position: absolute; left: 50%; top: -4px; height: 22px;
+    border-left: 1.5px solid var(--frm-tree-color, #cbd5e1);
+}
+.frm-tree-guide[data-g="empty"]::before { content: none; }
+.frm-tree-row .vw-frm-row {
+    flex: 1; margin-bottom: 0 !important;
+    padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border);
+    cursor: pointer; transition: background 0.15s, transform 0.1s;
+}
+.frm-root-badge {
+    display: inline-block; padding: 1px 8px; border-radius: 999px;
+    background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+    color: #fff; font-size: 10px; font-weight: 700;
+    box-shadow: 0 1px 2px rgba(245,158,11,0.35); letter-spacing: 1px;
 }
 
 .filter-toggle-btn {
@@ -7503,6 +7593,48 @@ function buildViewerScript() {
             setTimeout(() => el.classList.remove('comp-flash-locate'), 1800);
         }
     }
+    // 把命中的卡片轉成階層樹列（含 depth + lastFlags 用於畫 L/T/│）
+    function buildViewerVisibleCardTree(visibleCards){
+        const visibleSet = new Set(visibleCards.map(c => c.id));
+        const cardById = {}; visibleCards.forEach(c => cardById[c.id] = c);
+        const childrenOf = {}; visibleCards.forEach(c => childrenOf[c.id] = []);
+        const parentOf = {};
+        projectData.connectors.forEach(conn => {
+            if (visibleSet.has(conn.fromComponentId) && visibleSet.has(conn.toComponentId)) {
+                if (childrenOf[conn.fromComponentId].indexOf(conn.toComponentId) < 0) {
+                    childrenOf[conn.fromComponentId].push(conn.toComponentId);
+                }
+                parentOf[conn.toComponentId] = conn.fromComponentId;
+            }
+        });
+        const titleOf = (id) => (cardById[id] && cardById[id].props.title) || '';
+        Object.keys(childrenOf).forEach(k => childrenOf[k].sort((a, b) => titleOf(a).localeCompare(titleOf(b))));
+        const roots = visibleCards.filter(c => !parentOf[c.id]).sort((a, b) => titleOf(a.id).localeCompare(titleOf(b.id)));
+        const rows = [];
+        const visited = new Set();
+        function walk(id, lastFlags){
+            if (visited.has(id)) return; visited.add(id);
+            const card = cardById[id]; if (!card) return;
+            rows.push({ card, depth: lastFlags.length, lastFlags: lastFlags.slice(), isRoot: lastFlags.length === 0 });
+            const kids = childrenOf[id] || [];
+            kids.forEach((kid, idx) => walk(kid, lastFlags.concat([idx === kids.length - 1])));
+        }
+        roots.forEach(r => walk(r.id, []));
+        visibleCards.forEach(c => { if (!visited.has(c.id)) rows.push({ card: c, depth: 0, lastFlags: [], isRoot: true }); });
+        return rows;
+    }
+    function vwRenderTreeGuides(lastFlags){
+        let html = '';
+        const d = lastFlags.length;
+        for (let i = 0; i < d; i++) {
+            const isLastCol = (i === d - 1);
+            let type;
+            if (isLastCol) type = lastFlags[i] ? 'last' : 'branch';
+            else           type = lastFlags[i] ? 'empty' : 'vline';
+            html += '<span class="frm-tree-guide" data-g="' + type + '"></span>';
+        }
+        return html;
+    }
     function openFilterResultsModal(){
         document.querySelectorAll('.filter-results-overlay').forEach(o => o.remove());
         const overlay = document.createElement('div');
@@ -7542,19 +7674,28 @@ function buildViewerScript() {
         h += '</div>';
 
         h += '<div style="flex:1;overflow-y:auto;padding:14px 20px;">';
-        // 命中類別卡片
+        // 命中類別卡片（階層樹：根節點靠左，子節點以 L 形連線縮排）
         h += '<div style="margin-bottom:18px;">';
-        h += '<div style="font-size:13px;font-weight:700;margin-bottom:8px;">📂 命中的類別卡片 (' + visible.size + ')</div>';
+        h += '<div style="font-size:13px;font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:8px;">📂 命中的類別卡片 (' + visible.size + ')<span style="font-size:11px;font-weight:400;color:var(--text-muted);">（縮排表示父子階層）</span></div>';
         if (visibleCards.length === 0) {
             h += '<div style="color:var(--text-muted);font-size:13px;padding:8px 4px;">無</div>';
         } else {
-            visibleCards.forEach(c => {
-                const path = buildViewerCardPath(c.id);
-                h += '<div class="vw-frm-row" data-card-id="' + escapeAttr(c.id) + '" title="點擊定位到畫布上" style="padding:8px 12px;border-radius:8px;border:1px solid var(--border);margin-bottom:6px;cursor:pointer;transition:background 0.15s, transform 0.1s;">';
-                h += '<div style="font-weight:600;font-size:14px;">' + escapeHtml(c.props.title || '(未命名)') + '</div>';
-                if (path) h += '<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">' + escapeHtml(path) + '</div>';
+            const treeRows = buildViewerVisibleCardTree(visibleCards);
+            h += '<div class="frm-tree">';
+            treeRows.forEach(({ card, depth, lastFlags, isRoot }) => {
+                h += '<div class="frm-tree-row">';
+                h += vwRenderTreeGuides(lastFlags);
+                const rootBadge = isRoot ? '<span class="frm-root-badge" title="根節點（沒有父卡片）">根</span>' : '';
+                h += '<div class="vw-frm-row frm-tree-card" data-card-id="' + escapeAttr(card.id) + '" title="點擊定位到畫布上">';
+                h += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><span style="font-weight:600;font-size:14px;">' + escapeHtml(card.props.title || '(未命名)') + '</span>' + rootBadge + '</div>';
+                if (!isRoot) {
+                    const path = buildViewerCardPath(card.id);
+                    if (path) h += '<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">' + escapeHtml(path) + '</div>';
+                }
+                h += '</div>';
                 h += '</div>';
             });
+            h += '</div>';
         }
         h += '</div>';
         // 命中班名
