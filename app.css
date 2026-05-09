@@ -2759,14 +2759,40 @@ body.fullscreen-mode #app .filter-panel { display: flex; }
     font-size: 10px; opacity: 0.75; padding-left: 4px;
     border-left: 1px solid currentColor; margin-left: 2px;
 }
-.filter-stats { font-size: 12px; color: var(--text-secondary); }
+.filter-stats {
+    font-size: 12px;
+    color: var(--text-secondary);
+    padding: 2px 6px;
+    border-radius: 6px;
+    transition: background 0.15s, color 0.15s;
+    user-select: none;
+}
 .filter-stats b { color: var(--primary, #6366f1); }
+.filter-stats:hover {
+    background: var(--bg-elev-2);
+    color: var(--text-primary);
+}
+.filter-stats:hover::after {
+    content: ' 🔎';
+    font-size: 11px;
+}
 
 /* 篩選結果視覺提示 */
 .component.filter-dimmed { opacity: 0.18; filter: saturate(0.4); transition: opacity 0.25s, filter 0.25s; }
 .component.filter-hit { box-shadow: 0 0 0 3px rgba(99,102,241,0.45), 0 6px 18px -4px rgba(99,102,241,0.5) !important; }
 .connector-path.filter-dimmed { opacity: 0.15; transition: opacity 0.25s; }
 .filter-active .component:not(.filter-dimmed):not(.filter-hit) { opacity: 0.95; }
+
+/* 從「篩選結果 modal」點擊卡片後的定位閃爍效果 */
+@keyframes compFlashLocate {
+    0%   { box-shadow: 0 0 0 0 rgba(245,158,11,0); }
+    20%  { box-shadow: 0 0 0 8px rgba(245,158,11,0.55), 0 0 30px 10px rgba(245,158,11,0.45); }
+    100% { box-shadow: 0 0 0 0 rgba(245,158,11,0); }
+}
+.component.comp-flash-locate {
+    animation: compFlashLocate 1.8s ease-out;
+    z-index: 9999 !important;
+}
 
 /* =============================================
    Minimap（縮圖）

@@ -5743,6 +5743,19 @@ function setupEditorFilterUI() {
         editorBuildFilterPanel();
         editorApplyFilter();
     });
+    // 統計欄位：點一下開啟「篩選結果 modal」
+    const stats = document.getElementById('editor-filter-stats');
+    if (stats) {
+        stats.style.cursor = 'pointer';
+        stats.title = '點擊查看篩選命中的卡片與班名清單';
+        stats.addEventListener('click', () => {
+            if (!editorHasAnyFilter() || !editorFilteredView) {
+                toast('目前沒有套用任何篩選', 'info');
+                return;
+            }
+            openEditorFilterResultsModal();
+        });
+    }
     // F 鍵切換（僅在全螢幕模式且非輸入框焦點）
     document.addEventListener('keydown', (e) => {
         if (!document.body.classList.contains('fullscreen-mode')) return;
@@ -5754,6 +5767,193 @@ function setupEditorFilterUI() {
             btn.click();
         }
     });
+}
+
+// 建立卡片路徑字串（祖先 › 父 › 自己），用於 modal 顯示
+function buildEditorCardPath(cardId, includeSelf) {
+    if (!projectData) return '';
+    const parentOf = {};
+    projectData.connectors.forEach(c => { parentOf[c.toComponentId] = c.fromComponentId; });
+    const names = [];
+    if (includeSelf) {
+        const self = getComponent(cardId);
+        if (self) names.push(self.props.title || '(未命名)');
+    }
+    let cur = parentOf[cardId];
+    let safety = 0;
+    while (cur && safety++ < 30) {
+        const c = getComponent(cur);
+        if (c) names.unshift(c.props.title || '(未命名)');
+        cur = parentOf[cur];
+    }
+    return names.join(' › ');
+}
+
+// 滾動畫布讓某元件置中並閃爍標示
+function scrollEditorToComponent(id) {
+    const comp = getComponent(id);
+    if (!comp) return;
+    const outer = document.getElementById('canvas-wrapper-outer');
+    if (!outer) return;
+    const z = (typeof viewportZoom === 'number') ? viewportZoom : 1;
+    const targetX = (comp.x + comp.w / 2) * z - outer.clientWidth / 2;
+    const targetY = (comp.y + comp.h / 2) * z - outer.clientHeight / 2;
+    outer.scrollTo({ left: targetX, top: targetY, behavior: 'smooth' });
+    // 短暫高亮
+    const el = document.querySelector('[data-component-id="' + id + '"]');
+    if (el) {
+        el.classList.add('comp-flash-locate');
+        setTimeout(() => el.classList.remove('comp-flash-locate'), 1800);
+    }
+}
+
+// 開啟「篩選結果」modal：列出命中的類別卡片與班名
+function openEditorFilterResultsModal() {
+    if (!editorFilteredView || !projectData) return;
+    // 移除舊的（避免重複）
+    document.querySelectorAll('.filter-results-overlay').forEach(o => o.remove());
+
+    const overlay = document.createElement('div');
+    overlay.className = 'filter-results-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:10500;';
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+    const m = document.createElement('div');
+    m.className = 'filter-results-modal';
+    m.style.cssText = 'background:var(--bg-card);color:var(--text-primary);border-radius:14px;width:min(720px,90vw);max-height:85vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px -10px rgba(0,0,0,0.4);border:1px solid var(--border);';
+
+    const visible = editorFilteredView.visibleCardIds;
+    const visibleCards = projectData.components.filter(c => c.type === 'course-category' && visible.has(c.id));
+    const matchedClasses = editorFilteredView.matchedClasses;
+
+    // 標題列
+    let h = '<div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:10px;background:var(--bg-elev-1,var(--bg-sidebar));">';
+    h += '<div style="display:flex;justify-content:space-between;align-items:center;">';
+    h += '<h2 style="margin:0;font-size:18px;font-weight:700;color:var(--text-primary);">🔍 篩選結果</h2>';
+    h += '<button class="btn btn-small" id="frm-close" title="關閉">✕</button>';
+    h += '</div>';
+    // 套用的篩選 chips
+    h += '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12px;">';
+    h += '<span style="color:var(--text-muted);">套用的篩選：</span>';
+    let activeCount = 0;
+    getAllCategoryKeys().forEach(cat => {
+        (editorActiveFilters[cat] || []).forEach(tagName => {
+            const t = (projectData.tagLibrary[cat] || []).find(x => x.name === tagName);
+            const color = t ? t.color : '#94a3b8';
+            h += '<span style="display:inline-flex;align-items:center;gap:3px;padding:3px 10px;border-radius:999px;background:' + color + ';color:#fff;font-weight:600;font-size:11px;box-shadow:0 1px 2px rgba(0,0,0,0.15);">';
+            h += '<span style="opacity:0.85;font-size:10px;">' + escapeHtml(getCategoryLabel(cat)) + '</span>';
+            h += '<span>·</span>';
+            h += escapeHtml(tagName);
+            h += '</span>';
+            activeCount++;
+        });
+    });
+    if (activeCount === 0) h += '<span style="color:var(--text-muted);font-style:italic;">無</span>';
+    h += '</div>';
+    // 統計
+    h += '<div style="font-size:12px;color:var(--text-secondary);">命中類別卡片 <b style="color:var(--primary);">' + visible.size + '</b>，命中班名 <b style="color:var(--primary);">' + matchedClasses + '</b> / ' + editorFilteredView.totalClasses + '</div>';
+    h += '</div>';
+
+    // 內容區
+    h += '<div style="flex:1;overflow-y:auto;padding:14px 20px;">';
+
+    // 命中類別卡片
+    h += '<div style="margin-bottom:18px;">';
+    h += '<div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:8px;">📂 命中的類別卡片 (' + visible.size + ')</div>';
+    if (visibleCards.length === 0) {
+        h += '<div style="color:var(--text-muted);font-size:13px;padding:8px 4px;">無</div>';
+    } else {
+        visibleCards.forEach(c => {
+            const path = buildEditorCardPath(c.id, false);
+            h += '<div class="frm-card-row" data-card-id="' + escapeAttr(c.id) + '" title="點擊定位到畫布上" style="padding:8px 12px;border-radius:8px;border:1px solid var(--border);margin-bottom:6px;cursor:pointer;transition:background 0.15s, transform 0.1s;">';
+            h += '<div style="font-weight:600;font-size:14px;color:var(--text-primary);">' + escapeHtml(c.props.title || '(未命名)') + '</div>';
+            if (path) h += '<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">' + escapeHtml(path) + '</div>';
+            h += '</div>';
+        });
+    }
+    h += '</div>';
+
+    // 命中班名（依卡片分組）
+    h += '<div>';
+    h += '<div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:8px;">📋 命中的班名 (' + matchedClasses + ')</div>';
+    if (matchedClasses === 0) {
+        h += '<div style="color:var(--text-muted);font-size:13px;padding:8px 4px;">無</div>';
+    } else {
+        Object.keys(editorFilteredView.classMatchMap).forEach(cardId => {
+            const hits = editorFilteredView.classMatchMap[cardId];
+            if (!hits || hits.length === 0) return;
+            const card = getComponent(cardId);
+            if (!card) return;
+            const path = buildEditorCardPath(cardId, false);
+            h += '<div style="margin-bottom:14px;">';
+            h += '<div class="frm-card-row" data-card-id="' + escapeAttr(cardId) + '" title="點擊定位到畫布上" style="font-weight:600;font-size:13px;color:var(--text-primary);padding:8px 12px;background:var(--bg-elev-2);border-radius:8px;cursor:pointer;transition:background 0.15s;">';
+            h += '<span>📌 ' + escapeHtml(card.props.title || '(未命名)') + '</span>';
+            h += '<span style="color:var(--primary);margin-left:6px;">(' + hits.length + ' 個班名)</span>';
+            if (path) h += '<div style="font-size:11px;font-weight:400;color:var(--text-muted);margin-top:2px;">' + escapeHtml(path) + '</div>';
+            h += '</div>';
+            h += '<div style="margin-left:14px;margin-top:6px;display:flex;flex-direction:column;gap:4px;">';
+            hits.forEach(cl => {
+                h += '<div style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-card);">';
+                h += '<div style="font-size:13px;color:var(--text-primary);font-weight:500;">' + escapeHtml(cl.name || '') + '</div>';
+                // 顯示該班名的標籤；命中篩選中的會 100% 不透明，其餘的稍微淡化
+                const tagChips = [];
+                getAllCategoryKeys().forEach(cat => {
+                    (cl.tags && cl.tags[cat] || []).forEach(name => {
+                        const t = (projectData.tagLibrary[cat] || []).find(x => x.name === name);
+                        const isActiveHit = (editorActiveFilters[cat] || []).indexOf(name) >= 0;
+                        const color = t ? t.color : '#94a3b8';
+                        const opacity = isActiveHit ? '1' : '0.55';
+                        const ring = isActiveHit ? 'box-shadow:0 0 0 2px rgba(99,102,241,0.35);' : '';
+                        tagChips.push('<span style="display:inline-block;padding:1px 7px;border-radius:999px;background:' + color + ';color:#fff;font-size:10px;font-weight:600;opacity:' + opacity + ';margin:2px 3px 0 0;' + ring + '">' + escapeHtml(name) + '</span>');
+                    });
+                });
+                if (tagChips.length) {
+                    h += '<div style="margin-top:3px;">' + tagChips.join('') + '</div>';
+                }
+                h += '</div>';
+            });
+            h += '</div>';
+            h += '</div>';
+        });
+    }
+    h += '</div>';
+
+    h += '</div>'; // /content
+
+    m.innerHTML = h;
+    overlay.appendChild(m);
+    document.body.appendChild(overlay);
+
+    m.querySelector('#frm-close').addEventListener('click', () => overlay.remove());
+
+    // 點擊任一 .frm-card-row → 定位到畫布上
+    m.querySelectorAll('.frm-card-row').forEach(row => {
+        row.addEventListener('mouseenter', () => {
+            row.style.background = 'var(--bg-elev-2)';
+            row.style.transform = 'translateX(2px)';
+        });
+        row.addEventListener('mouseleave', () => {
+            row.style.background = '';
+            row.style.transform = '';
+        });
+        row.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const id = row.dataset.cardId;
+            if (!id) return;
+            scrollEditorToComponent(id);
+            overlay.remove();
+        });
+    });
+
+    // Esc 關閉（捕獲階段優先處理，避免被全螢幕 Esc 攔截）
+    function onKey(e) {
+        if (e.key === 'Escape') {
+            overlay.remove();
+            document.removeEventListener('keydown', onKey, true);
+            e.stopPropagation();
+        }
+    }
+    document.addEventListener('keydown', onKey, true);
 }
 
 function setupShortcutsHelpModal() {
@@ -6376,8 +6576,29 @@ async function exportHTML() {
 .filter-chip:hover { transform: translateY(-1px); box-shadow: var(--shadow-sm); }
 .filter-chip.active { color: #fff; box-shadow: 0 2px 6px -1px rgba(0,0,0,0.25); }
 .filter-chip .chip-count { font-size: 10px; opacity: 0.75; padding-left: 4px; border-left: 1px solid currentColor; margin-left: 2px; }
-.filter-stats { font-size: 12px; color: var(--text-secondary); }
+.filter-stats {
+    font-size: 12px; color: var(--text-secondary);
+    padding: 2px 6px; border-radius: 6px;
+    transition: background 0.15s, color 0.15s;
+    user-select: none;
+}
 .filter-stats b { color: var(--primary, #6366f1); }
+.filter-stats:hover {
+    background: var(--bg-elev-2, #f1f5f9);
+    color: var(--text-primary);
+}
+.filter-stats:hover::after { content: ' 🔎'; font-size: 11px; }
+
+/* 從「篩選結果 modal」點擊卡片後的定位閃爍效果 */
+@keyframes compFlashLocate {
+    0%   { box-shadow: 0 0 0 0 rgba(245,158,11,0); }
+    20%  { box-shadow: 0 0 0 8px rgba(245,158,11,0.55), 0 0 30px 10px rgba(245,158,11,0.45); }
+    100% { box-shadow: 0 0 0 0 rgba(245,158,11,0); }
+}
+.comp-flash-locate {
+    animation: compFlashLocate 1.8s ease-out;
+    z-index: 9999 !important;
+}
 
 .filter-toggle-btn {
     position: fixed; top: 70px; right: 12px; z-index: 95;
@@ -7204,12 +7425,174 @@ function buildViewerScript() {
             buildFilterPanel();
             applyFilter();
         });
+        // 統計欄位：點一下開啟「篩選結果 modal」
+        const stats = document.getElementById('filter-stats');
+        if (stats) {
+            stats.style.cursor = 'pointer';
+            stats.title = '點擊查看篩選命中的卡片與班名清單';
+            stats.addEventListener('click', () => {
+                if (!hasAnyFilter() || !filteredView) return;
+                openFilterResultsModal();
+            });
+        }
         // F 鍵切換
         document.addEventListener('keydown', (e) => {
             if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
             if (e.key === 'f' || e.key === 'F') { e.preventDefault(); btn.click(); }
             if (e.key === 'Escape' && !panel.classList.contains('collapsed')) { panel.classList.add('collapsed'); syncBtn(); }
         });
+    }
+
+    // ========== 篩選結果 modal（檢視器） ==========
+    function buildViewerCardPath(cardId){
+        const parentOf = {};
+        projectData.connectors.forEach(c => { parentOf[c.toComponentId] = c.fromComponentId; });
+        const names = [];
+        let cur = parentOf[cardId];
+        let safety = 0;
+        while (cur && safety++ < 30) {
+            const c = getComp(cur);
+            if (c) names.unshift(c.props.title || '(未命名)');
+            cur = parentOf[cur];
+        }
+        return names.join(' › ');
+    }
+    function scrollViewerToComponent(id){
+        const comp = getComp(id);
+        if (!comp) return;
+        const outer = document.getElementById('vw-outer');
+        if (!outer) return;
+        const z = (typeof viewportZoom === 'number') ? viewportZoom : 1;
+        const targetX = (comp.x + comp.w / 2) * z - outer.clientWidth / 2;
+        const targetY = (comp.y + comp.h / 2) * z - outer.clientHeight / 2;
+        outer.scrollTo({ left: targetX, top: targetY, behavior: 'smooth' });
+        const el = document.querySelector('[data-comp-id="' + id + '"]');
+        if (el) {
+            el.classList.add('comp-flash-locate');
+            setTimeout(() => el.classList.remove('comp-flash-locate'), 1800);
+        }
+    }
+    function openFilterResultsModal(){
+        document.querySelectorAll('.filter-results-overlay').forEach(o => o.remove());
+        const overlay = document.createElement('div');
+        overlay.className = 'filter-results-overlay';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:10500;';
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+        const m = document.createElement('div');
+        m.style.cssText = 'background:var(--bg-card);color:var(--text-primary);border-radius:14px;width:min(720px,90vw);max-height:85vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px -10px rgba(0,0,0,0.4);border:1px solid var(--border);';
+
+        const visible = filteredView.visibleCardIds;
+        const visibleCards = projectData.components.filter(c => c.type === 'course-category' && visible.has(c.id));
+        const matchedClasses = filteredView.matchedClasses;
+
+        let h = '<div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:10px;background:var(--bg-elev-1,var(--bg-sidebar));">';
+        h += '<div style="display:flex;justify-content:space-between;align-items:center;">';
+        h += '<h2 style="margin:0;font-size:18px;font-weight:700;">🔍 篩選結果</h2>';
+        h += '<button class="btn btn-small" id="vw-frm-close" title="關閉">✕</button>';
+        h += '</div>';
+        h += '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12px;">';
+        h += '<span style="color:var(--text-muted);">套用的篩選：</span>';
+        let activeCount = 0;
+        TAG_CATEGORY_KEYS.forEach(cat => {
+            (activeFilters[cat] || []).forEach(tagName => {
+                const t = (projectData.tagLibrary[cat] || []).find(x => x.name === tagName);
+                const color = t ? t.color : '#94a3b8';
+                h += '<span style="display:inline-flex;align-items:center;gap:3px;padding:3px 10px;border-radius:999px;background:' + color + ';color:#fff;font-weight:600;font-size:11px;box-shadow:0 1px 2px rgba(0,0,0,0.15);">';
+                h += '<span style="opacity:0.85;font-size:10px;">' + escapeHtml(TAG_CATEGORY_LABELS[cat] || cat) + '</span>';
+                h += '<span>·</span>' + escapeHtml(tagName);
+                h += '</span>';
+                activeCount++;
+            });
+        });
+        if (activeCount === 0) h += '<span style="color:var(--text-muted);font-style:italic;">無</span>';
+        h += '</div>';
+        h += '<div style="font-size:12px;color:var(--text-secondary);">命中類別卡片 <b style="color:var(--primary,#6366f1);">' + visible.size + '</b>，命中班名 <b style="color:var(--primary,#6366f1);">' + matchedClasses + '</b> / ' + filteredView.totalClasses + '</div>';
+        h += '</div>';
+
+        h += '<div style="flex:1;overflow-y:auto;padding:14px 20px;">';
+        // 命中類別卡片
+        h += '<div style="margin-bottom:18px;">';
+        h += '<div style="font-size:13px;font-weight:700;margin-bottom:8px;">📂 命中的類別卡片 (' + visible.size + ')</div>';
+        if (visibleCards.length === 0) {
+            h += '<div style="color:var(--text-muted);font-size:13px;padding:8px 4px;">無</div>';
+        } else {
+            visibleCards.forEach(c => {
+                const path = buildViewerCardPath(c.id);
+                h += '<div class="vw-frm-row" data-card-id="' + escapeAttr(c.id) + '" title="點擊定位到畫布上" style="padding:8px 12px;border-radius:8px;border:1px solid var(--border);margin-bottom:6px;cursor:pointer;transition:background 0.15s, transform 0.1s;">';
+                h += '<div style="font-weight:600;font-size:14px;">' + escapeHtml(c.props.title || '(未命名)') + '</div>';
+                if (path) h += '<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">' + escapeHtml(path) + '</div>';
+                h += '</div>';
+            });
+        }
+        h += '</div>';
+        // 命中班名
+        h += '<div>';
+        h += '<div style="font-size:13px;font-weight:700;margin-bottom:8px;">📋 命中的班名 (' + matchedClasses + ')</div>';
+        if (matchedClasses === 0) {
+            h += '<div style="color:var(--text-muted);font-size:13px;padding:8px 4px;">無</div>';
+        } else {
+            Object.keys(filteredView.classMatchMap).forEach(cardId => {
+                const hits = filteredView.classMatchMap[cardId];
+                if (!hits || hits.length === 0) return;
+                const card = getComp(cardId);
+                if (!card) return;
+                const path = buildViewerCardPath(cardId);
+                h += '<div style="margin-bottom:14px;">';
+                h += '<div class="vw-frm-row" data-card-id="' + escapeAttr(cardId) + '" title="點擊定位到畫布上" style="font-weight:600;font-size:13px;padding:8px 12px;background:var(--bg-elev-2);border-radius:8px;cursor:pointer;transition:background 0.15s;">';
+                h += '<span>📌 ' + escapeHtml(card.props.title || '(未命名)') + '</span>';
+                h += '<span style="color:var(--primary,#6366f1);margin-left:6px;">(' + hits.length + ' 個班名)</span>';
+                if (path) h += '<div style="font-size:11px;font-weight:400;color:var(--text-muted);margin-top:2px;">' + escapeHtml(path) + '</div>';
+                h += '</div>';
+                h += '<div style="margin-left:14px;margin-top:6px;display:flex;flex-direction:column;gap:4px;">';
+                hits.forEach(cl => {
+                    h += '<div style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-card);">';
+                    h += '<div style="font-size:13px;font-weight:500;">' + escapeHtml(cl.name || '') + '</div>';
+                    const tagChips = [];
+                    TAG_CATEGORY_KEYS.forEach(cat => {
+                        (cl.tags && cl.tags[cat] || []).forEach(name => {
+                            const t = (projectData.tagLibrary[cat] || []).find(x => x.name === name);
+                            const isActiveHit = (activeFilters[cat] || []).indexOf(name) >= 0;
+                            const color = t ? t.color : '#94a3b8';
+                            const opacity = isActiveHit ? '1' : '0.55';
+                            const ring = isActiveHit ? 'box-shadow:0 0 0 2px rgba(99,102,241,0.35);' : '';
+                            tagChips.push('<span style="display:inline-block;padding:1px 7px;border-radius:999px;background:' + color + ';color:#fff;font-size:10px;font-weight:600;opacity:' + opacity + ';margin:2px 3px 0 0;' + ring + '">' + escapeHtml(name) + '</span>');
+                        });
+                    });
+                    if (tagChips.length) h += '<div style="margin-top:3px;">' + tagChips.join('') + '</div>';
+                    h += '</div>';
+                });
+                h += '</div>';
+                h += '</div>';
+            });
+        }
+        h += '</div>';
+        h += '</div>';
+
+        m.innerHTML = h;
+        overlay.appendChild(m);
+        document.body.appendChild(overlay);
+
+        m.querySelector('#vw-frm-close').addEventListener('click', () => overlay.remove());
+        m.querySelectorAll('.vw-frm-row').forEach(row => {
+            row.addEventListener('mouseenter', () => { row.style.background = 'var(--bg-elev-2)'; row.style.transform = 'translateX(2px)'; });
+            row.addEventListener('mouseleave', () => { row.style.background = ''; row.style.transform = ''; });
+            row.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const id = row.dataset.cardId;
+                if (!id) return;
+                scrollViewerToComponent(id);
+                overlay.remove();
+            });
+        });
+        function onKey(e){
+            if (e.key === 'Escape') {
+                overlay.remove();
+                document.removeEventListener('keydown', onKey, true);
+                e.stopPropagation();
+            }
+        }
+        document.addEventListener('keydown', onKey, true);
     }
     function setZoom(z){ viewportZoom = Math.max(0.1, Math.min(4, z)); applyZoom(); }
     function stepZoom(delta){
