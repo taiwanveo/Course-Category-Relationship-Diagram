@@ -5838,15 +5838,15 @@ function scrollEditorToComponent(id) {
     }
 }
 
-// 把命中的卡片依「父子連線」結構轉換成扁平樹列；每列含 depth + lastFlags（畫 L/T/│ 用）
-function buildEditorVisibleCardTree(visibleCards) {
+// 把命中的卡片＋班名依「父子連線」結構轉換成扁平樹列
+// 每列為 { kind:'card'|'class', card?, cardId?, cl?, depth, lastFlags, isRoot? }
+function buildEditorVisibleCardTree(visibleCards, classMatchMap) {
     const visibleSet = new Set(visibleCards.map(c => c.id));
     const cardById = {}; visibleCards.forEach(c => cardById[c.id] = c);
     const childrenOf = {}; visibleCards.forEach(c => childrenOf[c.id] = []);
     const parentOf = {};
     projectData.connectors.forEach(conn => {
         if (visibleSet.has(conn.fromComponentId) && visibleSet.has(conn.toComponentId)) {
-            // 避免重複
             if (childrenOf[conn.fromComponentId].indexOf(conn.toComponentId) < 0) {
                 childrenOf[conn.fromComponentId].push(conn.toComponentId);
             }
@@ -5855,21 +5855,66 @@ function buildEditorVisibleCardTree(visibleCards) {
     });
     const titleOf = (id) => (cardById[id] && cardById[id].props.title) || '';
     Object.keys(childrenOf).forEach(k => childrenOf[k].sort((a, b) => titleOf(a).localeCompare(titleOf(b))));
-    // 根節點：在可見集合中沒有可見父卡的就是根
     const roots = visibleCards.filter(c => !parentOf[c.id]).sort((a, b) => titleOf(a.id).localeCompare(titleOf(b.id)));
     const rows = [];
     const visited = new Set();
     function walk(id, lastFlags) {
         if (visited.has(id)) return; visited.add(id);
         const card = cardById[id]; if (!card) return;
-        rows.push({ card, depth: lastFlags.length, lastFlags: lastFlags.slice(), isRoot: lastFlags.length === 0 });
-        const kids = childrenOf[id] || [];
-        kids.forEach((kid, idx) => walk(kid, lastFlags.concat([idx === kids.length - 1])));
+        rows.push({ kind: 'card', card, depth: lastFlags.length, lastFlags: lastFlags.slice(), isRoot: lastFlags.length === 0 });
+        const subKids = childrenOf[id] || [];
+        const classHits = (classMatchMap && classMatchMap[id]) ? classMatchMap[id].slice().sort((a, b) => (a.name || '').localeCompare(b.name || '')) : [];
+        const totalChildren = subKids.length + classHits.length;
+        let idx = 0;
+        // 先列子卡片（folders first）
+        subKids.forEach(kid => walk(kid, lastFlags.concat([idx++ === totalChildren - 1])));
+        // 再列班名（leaves last），班名沒有自己的下層
+        classHits.forEach(cl => {
+            rows.push({
+                kind: 'class', cardId: id, cl,
+                depth: lastFlags.length + 1,
+                lastFlags: lastFlags.concat([idx++ === totalChildren - 1])
+            });
+        });
     }
     roots.forEach(r => walk(r.id, []));
-    // 圖中有環或斷裂的卡也補上（當作根）
-    visibleCards.forEach(c => { if (!visited.has(c.id)) rows.push({ card: c, depth: 0, lastFlags: [], isRoot: true }); });
+    visibleCards.forEach(c => { if (!visited.has(c.id)) rows.push({ kind: 'card', card: c, depth: 0, lastFlags: [], isRoot: true }); });
     return rows;
+}
+
+// 為單張類別卡片產生 assignedTags chips HTML（命中目前篩選的會高亮）
+function renderEditorCardTagChips(card) {
+    const at = card.props.assignedTags || {};
+    const chips = [];
+    getAllCategoryKeys().forEach(cat => {
+        const ids = at[cat] || [];
+        ids.forEach(tagId => {
+            const t = (projectData.tagLibrary[cat] || []).find(x => x.id === tagId);
+            if (!t) return;
+            const isActiveHit = (editorActiveFilters[cat] || []).indexOf(t.name) >= 0;
+            const color = t.color || '#94a3b8';
+            const opacity = isActiveHit ? '1' : '0.55';
+            const ring = isActiveHit ? 'box-shadow:0 0 0 2px rgba(99,102,241,0.35);' : '';
+            chips.push('<span style="display:inline-block;padding:1px 7px;border-radius:999px;background:' + color + ';color:#fff;font-size:10px;font-weight:600;opacity:' + opacity + ';margin:2px 3px 0 0;' + ring + '">' + escapeHtml(t.name) + '</span>');
+        });
+    });
+    return chips.length ? ('<div style="margin-top:4px;">' + chips.join('') + '</div>') : '';
+}
+
+// 為班名產生 tags chips（命中目前篩選的會高亮）
+function renderEditorClassTagChips(cl) {
+    const chips = [];
+    getAllCategoryKeys().forEach(cat => {
+        (cl.tags && cl.tags[cat] || []).forEach(name => {
+            const t = (projectData.tagLibrary[cat] || []).find(x => x.name === name);
+            const isActiveHit = (editorActiveFilters[cat] || []).indexOf(name) >= 0;
+            const color = t ? t.color : '#94a3b8';
+            const opacity = isActiveHit ? '1' : '0.55';
+            const ring = isActiveHit ? 'box-shadow:0 0 0 2px rgba(99,102,241,0.35);' : '';
+            chips.push('<span style="display:inline-block;padding:1px 7px;border-radius:999px;background:' + color + ';color:#fff;font-size:10px;font-weight:600;opacity:' + opacity + ';margin:2px 3px 0 0;' + ring + '">' + escapeHtml(name) + '</span>');
+        });
+    });
+    return chips.length ? ('<div style="margin-top:3px;">' + chips.join('') + '</div>') : '';
 }
 
 // 為單列產生「樹形指示符欄位」HTML（vline / branch / last / empty）
@@ -5933,79 +5978,39 @@ function openEditorFilterResultsModal() {
     h += '<div style="font-size:12px;color:var(--text-secondary);">命中類別卡片 <b style="color:var(--primary);">' + visible.size + '</b>，命中班名 <b style="color:var(--primary);">' + matchedClasses + '</b> / ' + editorFilteredView.totalClasses + '</div>';
     h += '</div>';
 
-    // 內容區
+    // 內容區（單一階層樹：主類別 → 次類別 → 班名 三層合併呈現）
     h += '<div style="flex:1;overflow-y:auto;padding:14px 20px;">';
-
-    // 命中類別卡片（以階層樹呈現：根節點靠左，子節點以 L 形連線縮排）
-    h += '<div style="margin-bottom:18px;">';
-    h += '<div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:8px;display:flex;align-items:center;gap:8px;">📂 命中的類別卡片 (' + visible.size + ')<span style="font-size:11px;font-weight:400;color:var(--text-muted);">（縮排表示父子階層）</span></div>';
+    h += '<div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:8px;display:flex;align-items:center;gap:8px;">命中結果 <span style="font-size:11px;font-weight:400;color:var(--text-muted);">（類別卡片 ' + visible.size + '、班名 ' + matchedClasses + '）</span></div>';
     if (visibleCards.length === 0) {
         h += '<div style="color:var(--text-muted);font-size:13px;padding:8px 4px;">無</div>';
     } else {
-        const treeRows = buildEditorVisibleCardTree(visibleCards);
+        const treeRows = buildEditorVisibleCardTree(visibleCards, editorFilteredView.classMatchMap);
         h += '<div class="frm-tree">';
-        treeRows.forEach(({ card, depth, lastFlags, isRoot }) => {
+        treeRows.forEach(row => {
             h += '<div class="frm-tree-row">';
-            h += renderTreeGuides(lastFlags);
-            const rootBadge = isRoot ? '<span class="frm-root-badge" title="根節點（沒有父卡片）">根</span>' : '';
-            h += '<div class="frm-card-row frm-tree-card" data-card-id="' + escapeAttr(card.id) + '" title="點擊定位到畫布上">';
-            h += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><span style="font-weight:600;font-size:14px;color:var(--text-primary);">' + escapeHtml(card.props.title || '(未命名)') + '</span>' + rootBadge + '</div>';
-            if (!isRoot) {
-                const path = buildEditorCardPath(card.id, false);
-                if (path) h += '<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">' + escapeHtml(path) + '</div>';
+            h += renderTreeGuides(row.lastFlags);
+            if (row.kind === 'card') {
+                const card = row.card;
+                const levelClass = row.isRoot ? 'frm-card-main' : 'frm-card-sub';
+                h += '<div class="frm-card-row frm-tree-card ' + levelClass + '" data-card-id="' + escapeAttr(card.id) + '" title="點擊定位到畫布上">';
+                h += '<div class="frm-card-title">' + escapeHtml(card.props.title || '(未命名)') + '</div>';
+                if (!row.isRoot) {
+                    const path = buildEditorCardPath(card.id, false);
+                    if (path) h += '<div class="frm-card-path">' + escapeHtml(path) + '</div>';
+                }
+                h += renderEditorCardTagChips(card);
+                h += '</div>';
+            } else {
+                // kind === 'class'
+                h += '<div class="frm-class-row" data-card-id="' + escapeAttr(row.cardId) + '" title="點擊定位到所屬卡片">';
+                h += '<span class="frm-class-bullet">·</span><span class="frm-class-name">' + escapeHtml(row.cl.name || '') + '</span>';
+                h += renderEditorClassTagChips(row.cl);
+                h += '</div>';
             }
-            h += '</div>';
             h += '</div>';
         });
         h += '</div>';
     }
-    h += '</div>';
-
-    // 命中班名（依卡片分組）
-    h += '<div>';
-    h += '<div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:8px;">📋 命中的班名 (' + matchedClasses + ')</div>';
-    if (matchedClasses === 0) {
-        h += '<div style="color:var(--text-muted);font-size:13px;padding:8px 4px;">無</div>';
-    } else {
-        Object.keys(editorFilteredView.classMatchMap).forEach(cardId => {
-            const hits = editorFilteredView.classMatchMap[cardId];
-            if (!hits || hits.length === 0) return;
-            const card = getComponent(cardId);
-            if (!card) return;
-            const path = buildEditorCardPath(cardId, false);
-            h += '<div style="margin-bottom:14px;">';
-            h += '<div class="frm-card-row" data-card-id="' + escapeAttr(cardId) + '" title="點擊定位到畫布上" style="font-weight:600;font-size:13px;color:var(--text-primary);padding:8px 12px;background:var(--bg-elev-2);border-radius:8px;cursor:pointer;transition:background 0.15s;">';
-            h += '<span>📌 ' + escapeHtml(card.props.title || '(未命名)') + '</span>';
-            h += '<span style="color:var(--primary);margin-left:6px;">(' + hits.length + ' 個班名)</span>';
-            if (path) h += '<div style="font-size:11px;font-weight:400;color:var(--text-muted);margin-top:2px;">' + escapeHtml(path) + '</div>';
-            h += '</div>';
-            h += '<div style="margin-left:14px;margin-top:6px;display:flex;flex-direction:column;gap:4px;">';
-            hits.forEach(cl => {
-                h += '<div style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-card);">';
-                h += '<div style="font-size:13px;color:var(--text-primary);font-weight:500;">' + escapeHtml(cl.name || '') + '</div>';
-                // 顯示該班名的標籤；命中篩選中的會 100% 不透明，其餘的稍微淡化
-                const tagChips = [];
-                getAllCategoryKeys().forEach(cat => {
-                    (cl.tags && cl.tags[cat] || []).forEach(name => {
-                        const t = (projectData.tagLibrary[cat] || []).find(x => x.name === name);
-                        const isActiveHit = (editorActiveFilters[cat] || []).indexOf(name) >= 0;
-                        const color = t ? t.color : '#94a3b8';
-                        const opacity = isActiveHit ? '1' : '0.55';
-                        const ring = isActiveHit ? 'box-shadow:0 0 0 2px rgba(99,102,241,0.35);' : '';
-                        tagChips.push('<span style="display:inline-block;padding:1px 7px;border-radius:999px;background:' + color + ';color:#fff;font-size:10px;font-weight:600;opacity:' + opacity + ';margin:2px 3px 0 0;' + ring + '">' + escapeHtml(name) + '</span>');
-                    });
-                });
-                if (tagChips.length) {
-                    h += '<div style="margin-top:3px;">' + tagChips.join('') + '</div>';
-                }
-                h += '</div>';
-            });
-            h += '</div>';
-            h += '</div>';
-        });
-    }
-    h += '</div>';
-
     h += '</div>'; // /content
 
     m.innerHTML = h;
@@ -6014,16 +6019,8 @@ function openEditorFilterResultsModal() {
 
     m.querySelector('#frm-close').addEventListener('click', () => overlay.remove());
 
-    // 點擊任一 .frm-card-row → 定位到畫布上
-    m.querySelectorAll('.frm-card-row').forEach(row => {
-        row.addEventListener('mouseenter', () => {
-            row.style.background = 'var(--bg-elev-2)';
-            row.style.transform = 'translateX(2px)';
-        });
-        row.addEventListener('mouseleave', () => {
-            row.style.background = '';
-            row.style.transform = '';
-        });
+    // 點擊任一卡片或班名 row → 定位到對應的畫布卡片
+    m.querySelectorAll('.frm-card-row, .frm-class-row').forEach(row => {
         row.addEventListener('click', (e) => {
             e.stopPropagation();
             const id = row.dataset.cardId;
@@ -6709,16 +6706,45 @@ async function exportHTML() {
     border-left: 1.5px solid var(--frm-tree-color, #cbd5e1);
 }
 .frm-tree-guide[data-g="empty"]::before { content: none; }
+/* ===== 篩選結果 modal：三層階層樣式 ===== */
 .frm-tree-row .vw-frm-row {
     flex: 1; margin-bottom: 0 !important;
-    padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border);
+    padding: 8px 12px; border-radius: 10px;
     cursor: pointer; transition: background 0.15s, transform 0.1s;
+    position: relative;
 }
-.frm-root-badge {
-    display: inline-block; padding: 1px 8px; border-radius: 999px;
-    background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
-    color: #fff; font-size: 10px; font-weight: 700;
-    box-shadow: 0 1px 2px rgba(245,158,11,0.35); letter-spacing: 1px;
+.frm-tree-row .vw-frm-row:hover { background: var(--bg-elev-2); transform: translateX(2px); }
+.frm-card-title { font-size: 14px; font-weight: 600; color: var(--text-primary); line-height: 1.35; }
+.frm-card-path { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.frm-tree-row .vw-frm-row.frm-card-main {
+    border: 1px solid rgba(99,102,241,0.25);
+    background: linear-gradient(90deg, rgba(99,102,241,0.10) 0%, rgba(99,102,241,0.02) 70%, transparent 100%);
+    padding-left: 14px;
+    box-shadow: inset 4px 0 0 0 var(--primary, #6366f1), 0 1px 2px rgba(99,102,241,0.08);
+}
+.frm-tree-row .vw-frm-row.frm-card-main .frm-card-title {
+    font-size: 16px; font-weight: 700; letter-spacing: 0.2px;
+}
+.frm-tree-row .vw-frm-row.frm-card-main:hover {
+    background: linear-gradient(90deg, rgba(99,102,241,0.16) 0%, rgba(99,102,241,0.04) 70%, transparent 100%);
+}
+.frm-tree-row .vw-frm-row.frm-card-sub {
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+}
+.frm-tree-row .frm-class-row {
+    flex: 1; margin-bottom: 0 !important;
+    padding: 5px 10px 5px 8px; border-radius: 6px;
+    cursor: pointer; transition: background 0.15s, transform 0.1s;
+    color: var(--text-secondary);
+}
+.frm-tree-row .frm-class-row:hover { background: var(--bg-elev-2); transform: translateX(2px); }
+.frm-class-bullet {
+    color: var(--text-muted); margin-right: 6px; font-weight: 700;
+    font-size: 14px; line-height: 1; display: inline-block; transform: translateY(-1px);
+}
+.frm-class-name {
+    font-size: 13px; font-weight: 500; color: var(--text-primary); line-height: 1.3;
 }
 
 .filter-toggle-btn {
@@ -7593,8 +7619,8 @@ function buildViewerScript() {
             setTimeout(() => el.classList.remove('comp-flash-locate'), 1800);
         }
     }
-    // 把命中的卡片轉成階層樹列（含 depth + lastFlags 用於畫 L/T/│）
-    function buildViewerVisibleCardTree(visibleCards){
+    // 把命中的卡片＋班名轉成階層樹列（kind: 'card'|'class'）
+    function buildViewerVisibleCardTree(visibleCards, classMatchMap){
         const visibleSet = new Set(visibleCards.map(c => c.id));
         const cardById = {}; visibleCards.forEach(c => cardById[c.id] = c);
         const childrenOf = {}; visibleCards.forEach(c => childrenOf[c.id] = []);
@@ -7615,12 +7641,22 @@ function buildViewerScript() {
         function walk(id, lastFlags){
             if (visited.has(id)) return; visited.add(id);
             const card = cardById[id]; if (!card) return;
-            rows.push({ card, depth: lastFlags.length, lastFlags: lastFlags.slice(), isRoot: lastFlags.length === 0 });
-            const kids = childrenOf[id] || [];
-            kids.forEach((kid, idx) => walk(kid, lastFlags.concat([idx === kids.length - 1])));
+            rows.push({ kind: 'card', card, depth: lastFlags.length, lastFlags: lastFlags.slice(), isRoot: lastFlags.length === 0 });
+            const subKids = childrenOf[id] || [];
+            const classHits = (classMatchMap && classMatchMap[id]) ? classMatchMap[id].slice().sort((a, b) => (a.name || '').localeCompare(b.name || '')) : [];
+            const totalChildren = subKids.length + classHits.length;
+            let idx = 0;
+            subKids.forEach(kid => walk(kid, lastFlags.concat([idx++ === totalChildren - 1])));
+            classHits.forEach(cl => {
+                rows.push({
+                    kind: 'class', cardId: id, cl,
+                    depth: lastFlags.length + 1,
+                    lastFlags: lastFlags.concat([idx++ === totalChildren - 1])
+                });
+            });
         }
         roots.forEach(r => walk(r.id, []));
-        visibleCards.forEach(c => { if (!visited.has(c.id)) rows.push({ card: c, depth: 0, lastFlags: [], isRoot: true }); });
+        visibleCards.forEach(c => { if (!visited.has(c.id)) rows.push({ kind: 'card', card: c, depth: 0, lastFlags: [], isRoot: true }); });
         return rows;
     }
     function vwRenderTreeGuides(lastFlags){
@@ -7634,6 +7670,39 @@ function buildViewerScript() {
             html += '<span class="frm-tree-guide" data-g="' + type + '"></span>';
         }
         return html;
+    }
+    // 為類別卡片的 assignedTags 產生 chips（命中目前篩選的會高亮）
+    function vwRenderCardTagChips(card){
+        const at = card.props.assignedTags || {};
+        const chips = [];
+        TAG_CATEGORY_KEYS.forEach(cat => {
+            const ids = at[cat] || [];
+            ids.forEach(tagId => {
+                const t = (projectData.tagLibrary[cat] || []).find(x => x.id === tagId);
+                if (!t) return;
+                const isActiveHit = (activeFilters[cat] || []).indexOf(t.name) >= 0;
+                const color = t.color || '#94a3b8';
+                const opacity = isActiveHit ? '1' : '0.55';
+                const ring = isActiveHit ? 'box-shadow:0 0 0 2px rgba(99,102,241,0.35);' : '';
+                chips.push('<span style="display:inline-block;padding:1px 7px;border-radius:999px;background:' + color + ';color:#fff;font-size:10px;font-weight:600;opacity:' + opacity + ';margin:2px 3px 0 0;' + ring + '">' + escapeHtml(t.name) + '</span>');
+            });
+        });
+        return chips.length ? ('<div style="margin-top:4px;">' + chips.join('') + '</div>') : '';
+    }
+    // 為班名 tags 產生 chips
+    function vwRenderClassTagChips(cl){
+        const chips = [];
+        TAG_CATEGORY_KEYS.forEach(cat => {
+            (cl.tags && cl.tags[cat] || []).forEach(name => {
+                const t = (projectData.tagLibrary[cat] || []).find(x => x.name === name);
+                const isActiveHit = (activeFilters[cat] || []).indexOf(name) >= 0;
+                const color = t ? t.color : '#94a3b8';
+                const opacity = isActiveHit ? '1' : '0.55';
+                const ring = isActiveHit ? 'box-shadow:0 0 0 2px rgba(99,102,241,0.35);' : '';
+                chips.push('<span style="display:inline-block;padding:1px 7px;border-radius:999px;background:' + color + ';color:#fff;font-size:10px;font-weight:600;opacity:' + opacity + ';margin:2px 3px 0 0;' + ring + '">' + escapeHtml(name) + '</span>');
+            });
+        });
+        return chips.length ? ('<div style="margin-top:3px;">' + chips.join('') + '</div>') : '';
     }
     function openFilterResultsModal(){
         document.querySelectorAll('.filter-results-overlay').forEach(o => o.remove());
@@ -7673,72 +7742,39 @@ function buildViewerScript() {
         h += '<div style="font-size:12px;color:var(--text-secondary);">命中類別卡片 <b style="color:var(--primary,#6366f1);">' + visible.size + '</b>，命中班名 <b style="color:var(--primary,#6366f1);">' + matchedClasses + '</b> / ' + filteredView.totalClasses + '</div>';
         h += '</div>';
 
+        // 內容區（單一階層樹：主類別 → 次類別 → 班名 三層合併呈現）
         h += '<div style="flex:1;overflow-y:auto;padding:14px 20px;">';
-        // 命中類別卡片（階層樹：根節點靠左，子節點以 L 形連線縮排）
-        h += '<div style="margin-bottom:18px;">';
-        h += '<div style="font-size:13px;font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:8px;">📂 命中的類別卡片 (' + visible.size + ')<span style="font-size:11px;font-weight:400;color:var(--text-muted);">（縮排表示父子階層）</span></div>';
+        h += '<div style="font-size:13px;font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:8px;">命中結果 <span style="font-size:11px;font-weight:400;color:var(--text-muted);">（類別卡片 ' + visible.size + '、班名 ' + matchedClasses + '）</span></div>';
         if (visibleCards.length === 0) {
             h += '<div style="color:var(--text-muted);font-size:13px;padding:8px 4px;">無</div>';
         } else {
-            const treeRows = buildViewerVisibleCardTree(visibleCards);
+            const treeRows = buildViewerVisibleCardTree(visibleCards, filteredView.classMatchMap);
             h += '<div class="frm-tree">';
-            treeRows.forEach(({ card, depth, lastFlags, isRoot }) => {
+            treeRows.forEach(row => {
                 h += '<div class="frm-tree-row">';
-                h += vwRenderTreeGuides(lastFlags);
-                const rootBadge = isRoot ? '<span class="frm-root-badge" title="根節點（沒有父卡片）">根</span>' : '';
-                h += '<div class="vw-frm-row frm-tree-card" data-card-id="' + escapeAttr(card.id) + '" title="點擊定位到畫布上">';
-                h += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><span style="font-weight:600;font-size:14px;">' + escapeHtml(card.props.title || '(未命名)') + '</span>' + rootBadge + '</div>';
-                if (!isRoot) {
-                    const path = buildViewerCardPath(card.id);
-                    if (path) h += '<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">' + escapeHtml(path) + '</div>';
+                h += vwRenderTreeGuides(row.lastFlags);
+                if (row.kind === 'card') {
+                    const card = row.card;
+                    const levelClass = row.isRoot ? 'frm-card-main' : 'frm-card-sub';
+                    h += '<div class="vw-frm-row frm-tree-card ' + levelClass + '" data-card-id="' + escapeAttr(card.id) + '" title="點擊定位到畫布上">';
+                    h += '<div class="frm-card-title">' + escapeHtml(card.props.title || '(未命名)') + '</div>';
+                    if (!row.isRoot) {
+                        const path = buildViewerCardPath(card.id);
+                        if (path) h += '<div class="frm-card-path">' + escapeHtml(path) + '</div>';
+                    }
+                    h += vwRenderCardTagChips(card);
+                    h += '</div>';
+                } else {
+                    // kind === 'class'
+                    h += '<div class="frm-class-row" data-card-id="' + escapeAttr(row.cardId) + '" title="點擊定位到所屬卡片">';
+                    h += '<span class="frm-class-bullet">·</span><span class="frm-class-name">' + escapeHtml(row.cl.name || '') + '</span>';
+                    h += vwRenderClassTagChips(row.cl);
+                    h += '</div>';
                 }
-                h += '</div>';
                 h += '</div>';
             });
             h += '</div>';
         }
-        h += '</div>';
-        // 命中班名
-        h += '<div>';
-        h += '<div style="font-size:13px;font-weight:700;margin-bottom:8px;">📋 命中的班名 (' + matchedClasses + ')</div>';
-        if (matchedClasses === 0) {
-            h += '<div style="color:var(--text-muted);font-size:13px;padding:8px 4px;">無</div>';
-        } else {
-            Object.keys(filteredView.classMatchMap).forEach(cardId => {
-                const hits = filteredView.classMatchMap[cardId];
-                if (!hits || hits.length === 0) return;
-                const card = getComp(cardId);
-                if (!card) return;
-                const path = buildViewerCardPath(cardId);
-                h += '<div style="margin-bottom:14px;">';
-                h += '<div class="vw-frm-row" data-card-id="' + escapeAttr(cardId) + '" title="點擊定位到畫布上" style="font-weight:600;font-size:13px;padding:8px 12px;background:var(--bg-elev-2);border-radius:8px;cursor:pointer;transition:background 0.15s;">';
-                h += '<span>📌 ' + escapeHtml(card.props.title || '(未命名)') + '</span>';
-                h += '<span style="color:var(--primary,#6366f1);margin-left:6px;">(' + hits.length + ' 個班名)</span>';
-                if (path) h += '<div style="font-size:11px;font-weight:400;color:var(--text-muted);margin-top:2px;">' + escapeHtml(path) + '</div>';
-                h += '</div>';
-                h += '<div style="margin-left:14px;margin-top:6px;display:flex;flex-direction:column;gap:4px;">';
-                hits.forEach(cl => {
-                    h += '<div style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-card);">';
-                    h += '<div style="font-size:13px;font-weight:500;">' + escapeHtml(cl.name || '') + '</div>';
-                    const tagChips = [];
-                    TAG_CATEGORY_KEYS.forEach(cat => {
-                        (cl.tags && cl.tags[cat] || []).forEach(name => {
-                            const t = (projectData.tagLibrary[cat] || []).find(x => x.name === name);
-                            const isActiveHit = (activeFilters[cat] || []).indexOf(name) >= 0;
-                            const color = t ? t.color : '#94a3b8';
-                            const opacity = isActiveHit ? '1' : '0.55';
-                            const ring = isActiveHit ? 'box-shadow:0 0 0 2px rgba(99,102,241,0.35);' : '';
-                            tagChips.push('<span style="display:inline-block;padding:1px 7px;border-radius:999px;background:' + color + ';color:#fff;font-size:10px;font-weight:600;opacity:' + opacity + ';margin:2px 3px 0 0;' + ring + '">' + escapeHtml(name) + '</span>');
-                        });
-                    });
-                    if (tagChips.length) h += '<div style="margin-top:3px;">' + tagChips.join('') + '</div>';
-                    h += '</div>';
-                });
-                h += '</div>';
-                h += '</div>';
-            });
-        }
-        h += '</div>';
         h += '</div>';
 
         m.innerHTML = h;
@@ -7746,9 +7782,7 @@ function buildViewerScript() {
         document.body.appendChild(overlay);
 
         m.querySelector('#vw-frm-close').addEventListener('click', () => overlay.remove());
-        m.querySelectorAll('.vw-frm-row').forEach(row => {
-            row.addEventListener('mouseenter', () => { row.style.background = 'var(--bg-elev-2)'; row.style.transform = 'translateX(2px)'; });
-            row.addEventListener('mouseleave', () => { row.style.background = ''; row.style.transform = ''; });
+        m.querySelectorAll('.vw-frm-row, .frm-class-row').forEach(row => {
             row.addEventListener('click', (e) => {
                 e.stopPropagation();
                 const id = row.dataset.cardId;
