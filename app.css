@@ -2723,6 +2723,110 @@ body.fullscreen-mode .exit-fullscreen-btn { display: inline-flex; align-items: c
 body.fullscreen-mode #app .filter-toggle-btn { display: flex; }
 body.fullscreen-mode #app .filter-panel { display: flex; }
 
+/* =============================================
+   編輯器全螢幕模式：關鍵字搜尋按鈕與面板（鏡像 filter 樣式，但放在 filter 按鈕下方）
+   ============================================= */
+#app .search-toggle-btn {
+    display: none;
+    position: fixed;
+    top: 116px; right: 12px;
+    z-index: 9990;
+    width: 42px; height: 42px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #14b8a6 0%, #0d9488 100%);
+    color: #fff;
+    border: none; cursor: pointer;
+    align-items: center; justify-content: center;
+    box-shadow:
+        0 2px 4px rgba(20,184,166,0.25),
+        0 4px 12px -2px rgba(20,184,166,0.35),
+        inset 0 1px 0 rgba(255,255,255,0.25);
+    transition: transform 0.2s, opacity 0.2s, box-shadow 0.2s;
+}
+#app .search-toggle-btn:hover {
+    transform: scale(1.08);
+    box-shadow:
+        0 3px 6px rgba(20,184,166,0.3),
+        0 8px 18px -4px rgba(20,184,166,0.45),
+        inset 0 1px 0 rgba(255,255,255,0.3);
+}
+#app .search-toggle-btn svg { width: 22px; height: 22px; display: block; }
+#app .search-toggle-btn .badge {
+    position: absolute; top: -4px; right: -4px;
+    background: #ef4444; color: #fff; font-size: 10px; font-weight: 700;
+    border-radius: 999px; padding: 1px 6px; min-width: 18px; text-align: center;
+    line-height: 1.4;
+}
+
+#app .search-panel {
+    display: none;
+    position: fixed;
+    top: 64px; right: 12px;
+    width: 320px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: var(--shadow-md);
+    flex-direction: column;
+    z-index: 9991;
+    transform: translateX(0);
+    transition: transform 0.3s ease, opacity 0.3s ease;
+    overflow: hidden;
+}
+#app .search-panel.collapsed {
+    transform: translateX(110%);
+    opacity: 0;
+    pointer-events: none;
+}
+
+body.fullscreen-mode #app .search-toggle-btn { display: flex; }
+body.fullscreen-mode #app .search-panel { display: flex; }
+
+/* 共用：搜尋面板內部結構（檢視器同樣使用，因 viewer 也 fetch app.css） */
+.search-panel-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 14px; border-bottom: 1px solid var(--border);
+    background: var(--bg-elev-1, var(--bg-sidebar));
+}
+.search-panel-header h3 { font-size: 14px; font-weight: 700; color: var(--text-primary); margin: 0; }
+.search-panel-body { padding: 12px 14px; }
+.search-input-wrap {
+    position: relative;
+    display: flex; align-items: center;
+    background: var(--bg-elev-1, var(--bg-canvas-outer));
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0 10px;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+.search-input-wrap:focus-within {
+    border-color: #14b8a6;
+    box-shadow: 0 0 0 3px rgba(20,184,166,0.15);
+}
+.search-input-icon {
+    width: 16px; height: 16px;
+    color: var(--text-muted);
+    flex: 0 0 16px;
+    margin-right: 6px;
+}
+.search-input-wrap input {
+    flex: 1;
+    border: none; outline: none;
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 14px;
+    padding: 9px 0;
+    font-family: inherit;
+}
+.search-input-wrap input::placeholder { color: var(--text-muted); }
+.search-tips {
+    margin-top: 10px;
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.5;
+}
+.search-tips b { color: var(--text-secondary); font-weight: 700; }
+
 /* 共用：篩選面板內部結構（檢視器同樣使用，因 viewer 也 fetch app.css） */
 .filter-panel-header {
     display: flex; align-items: center; justify-content: space-between;
@@ -2764,20 +2868,31 @@ body.fullscreen-mode #app .filter-panel { display: flex; }
 .filter-stats {
     font-size: 12px;
     color: var(--text-secondary);
-    padding: 2px 6px;
+    padding: 2px 8px;
     border-radius: 6px;
     transition: background 0.15s, color 0.15s;
     user-select: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    line-height: 1.4;
 }
 .filter-stats b { color: var(--primary, #6366f1); }
 .filter-stats:hover {
     background: var(--bg-elev-2);
     color: var(--text-primary);
 }
-.filter-stats:hover::after {
-    content: ' 🔎';
-    font-size: 11px;
+.filter-stats .filter-stats-eye {
+    width: 16px;
+    height: 16px;
+    flex: 0 0 16px;
+    color: var(--primary, #6366f1);
+    transition: transform 0.15s;
 }
+.filter-stats:hover .filter-stats-eye {
+    transform: scale(1.1);
+}
+.filter-stats-text { display: inline-block; }
 
 /* 篩選結果視覺提示 */
 .component.filter-dimmed { opacity: 0.18; filter: saturate(0.4); transition: opacity 0.25s, filter 0.25s; }
@@ -2895,7 +3010,7 @@ body.fullscreen-mode #app .filter-panel { display: flex; }
     font-size: 14px;
     font-weight: 600;
 }
-/* 班名：葉節點樣式—小字、無邊框、前綴小圓點，純文字感 */
+/* 班名：葉節點樣式—小字、無邊框、純文字感 */
 .frm-tree-row .frm-class-row {
     flex: 1;
     margin-bottom: 0 !important;
@@ -2904,29 +3019,45 @@ body.fullscreen-mode #app .filter-panel { display: flex; }
     cursor: pointer;
     transition: background 0.15s, transform 0.1s;
     color: var(--text-secondary);
-    display: flex;
-    flex-direction: column;
-    gap: 0;
 }
 .frm-tree-row .frm-class-row:hover {
     background: var(--bg-elev-2);
     transform: translateX(2px);
 }
-.frm-class-bullet {
-    color: var(--text-muted);
-    margin-right: 6px;
-    font-weight: 700;
-    font-size: 14px;
-    line-height: 1;
-    display: inline-block;
-    transform: translateY(-1px);
+/* 班名標頭：dot 圖示 + 班名橫排 */
+.frm-class-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.frm-class-dot {
+    width: 10px;
+    height: 10px;
+    flex: 0 0 10px;
+    object-fit: contain;
+    user-select: none;
+    pointer-events: none;
 }
 .frm-class-name {
     font-size: 13px;
     font-weight: 500;
     color: var(--text-primary);
     line-height: 1.3;
-    display: inline;
+}
+/* 卡片標頭：dots 圖示（次類別才有）+ 標題橫排 */
+.frm-card-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.frm-card-dots {
+    width: 16px;
+    height: 16px;
+    flex: 0 0 16px;
+    object-fit: contain;
+    opacity: 0.7;
+    user-select: none;
+    pointer-events: none;
 }
 /* 深色主題下的調整 */
 [data-theme="dark"] .frm-tree-row .frm-card-row.frm-card-main {

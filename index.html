@@ -175,6 +175,12 @@
                     <span class="badge" id="editor-filter-count-badge" style="display:none;">0</span>
                 </button>
 
+                <!-- 全螢幕模式：關鍵字搜尋按鈕（只在 fullscreen-mode 顯示） -->
+                <button id="editor-search-toggle" class="search-toggle-btn" title="關鍵字搜尋（S）">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+                    <span class="badge" id="editor-search-count-badge" style="display:none;">1</span>
+                </button>
+
                 <!-- 全螢幕模式：標籤篩選面板（只在 fullscreen-mode 顯示） -->
                 <aside id="editor-filter-panel" class="filter-panel collapsed">
                     <div class="filter-panel-header">
@@ -186,8 +192,28 @@
                     </div>
                     <div class="filter-panel-body" id="editor-filter-body"></div>
                     <div class="filter-panel-footer">
-                        <span class="filter-stats" id="editor-filter-stats">顯示全部</span>
+                        <span class="filter-stats" id="editor-filter-stats" title="點擊查看篩選命中的卡片與班名清單"><svg class="filter-stats-eye" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M2.5 12s3.5-7 9.5-7 9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8"/></svg><span class="filter-stats-text">全部</span></span>
                         <span style="font-size:11px;color:var(--text-muted);">同類別=任一即可<br>跨類別=須全部符合</span>
+                    </div>
+                </aside>
+
+                <!-- 全螢幕模式：關鍵字搜尋面板（只在 fullscreen-mode 顯示） -->
+                <aside id="editor-search-panel" class="search-panel collapsed">
+                    <div class="search-panel-header">
+                        <h3>🔎 關鍵字搜尋</h3>
+                        <div style="display:flex;gap:6px;">
+                            <button class="btn btn-small" id="editor-search-clear" title="清除關鍵字">清除</button>
+                            <button class="btn btn-small" id="editor-search-close" title="關閉面板（Esc）">✕</button>
+                        </div>
+                    </div>
+                    <div class="search-panel-body">
+                        <div class="search-input-wrap">
+                            <svg class="search-input-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+                            <input type="text" id="editor-search-input" placeholder="輸入關鍵字（標題 / 班名 / 副標題）…" autocomplete="off">
+                        </div>
+                        <div class="search-tips">
+                            搜尋會與標籤篩選以 <b>AND</b> 結合，符合條件的類別卡片與班名才會被命中。
+                        </div>
                     </div>
                 </aside>
 

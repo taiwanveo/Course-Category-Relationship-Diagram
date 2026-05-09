@@ -787,13 +787,21 @@ function handleKeyDown(e) {
     const tag = (e.target.tagName || '').toUpperCase();
     if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
     if (e.key === 'Escape') {
-        // 全螢幕模式下，若篩選面板開著 → 先關閉面板（不退出全螢幕）
+        // 全螢幕模式下，若篩選面板/搜尋面板開著 → 先關閉面板（不退出全螢幕）
         if (document.body.classList.contains('fullscreen-mode')) {
             const fp = document.getElementById('editor-filter-panel');
             if (fp && !fp.classList.contains('collapsed')) {
                 fp.classList.add('collapsed');
                 const btn = document.getElementById('editor-filter-toggle');
                 if (btn) { btn.style.opacity = '1'; btn.style.pointerEvents = 'auto'; }
+                e.preventDefault();
+                return;
+            }
+            const sp = document.getElementById('editor-search-panel');
+            if (sp && !sp.classList.contains('collapsed')) {
+                sp.classList.add('collapsed');
+                const sbtn = document.getElementById('editor-search-toggle');
+                if (sbtn) { sbtn.style.opacity = '1'; sbtn.style.pointerEvents = 'auto'; }
                 e.preventDefault();
                 return;
             }
@@ -951,7 +959,7 @@ function renderCanvas() {
     // 同步 minimap
     if (typeof renderMinimap === 'function') renderMinimap();
     // 重新套用篩選（renderCanvas 會清掉 .filter-dimmed/.filter-hit）
-    if (typeof editorApplyFilter === 'function' && typeof editorHasAnyFilter === 'function' && editorHasAnyFilter()) {
+    if (typeof editorApplyFilter === 'function' && typeof editorHasAnyFilterOrSearch === 'function' && editorHasAnyFilterOrSearch()) {
         editorApplyFilter();
     }
 }
@@ -989,12 +997,20 @@ function exitFullscreenMode() {
     // 退出全螢幕：自動關閉並清除篩選面板（避免回到一般模式時有 dim 的卡片）
     const fp = document.getElementById('editor-filter-panel');
     if (fp) fp.classList.add('collapsed');
-    // 重置篩選按鈕 inline style（避免之前 syncBtn 設定的 opacity:0 / pointer-events:none 殘留
+    const sp = document.getElementById('editor-search-panel');
+    if (sp) sp.classList.add('collapsed');
+    // 重置篩選 / 搜尋按鈕 inline style（避免之前 syncBtn 設定的 opacity:0 / pointer-events:none 殘留
     // 導致下次進入全螢幕時按鈕雖被 CSS display:flex 但仍透明不可點）
     const fbtn = document.getElementById('editor-filter-toggle');
     if (fbtn) { fbtn.style.opacity = ''; fbtn.style.pointerEvents = ''; }
+    const sbtn = document.getElementById('editor-search-toggle');
+    if (sbtn) { sbtn.style.opacity = ''; sbtn.style.pointerEvents = ''; }
     if (typeof editorActiveFilters !== 'undefined') {
         getAllCategoryKeys().forEach(cat => editorActiveFilters[cat] = []);
+        editorSearchKeyword = '';
+        const sInput = document.getElementById('editor-search-input');
+        if (sInput) sInput.value = '';
+        if (typeof editorUpdateSearchBadge === 'function') editorUpdateSearchBadge();
         if (typeof editorApplyFilter === 'function') editorApplyFilter();
     }
     try {
@@ -5557,6 +5573,28 @@ function buildSubCategoryRow(child) {
 const editorActiveFilters = {};
 let editorFilteredView = null;
 
+// 篩選統計列「眼睛」圖示（提示「點此查看命中清單」）
+const FILTER_STATS_EYE_SVG = '<svg class="filter-stats-eye" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M2.5 12s3.5-7 9.5-7 9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8"/></svg>';
+
+// 編輯器：關鍵字搜尋狀態
+let editorSearchKeyword = '';
+
+function editorNormalizeKw(s) { return String(s == null ? '' : s).trim().toLowerCase(); }
+function editorHasAnySearch() { return editorNormalizeKw(editorSearchKeyword).length > 0; }
+function editorHasAnyFilterOrSearch() { return editorHasAnyFilter() || editorHasAnySearch(); }
+function editorClassMatchesKeyword(cls) {
+    const kw = editorNormalizeKw(editorSearchKeyword);
+    if (!kw) return true;
+    return String((cls && cls.name) || '').toLowerCase().includes(kw);
+}
+function editorCardLevelMatchesKeyword(comp) {
+    const kw = editorNormalizeKw(editorSearchKeyword);
+    if (!kw) return true;
+    const title = String((comp && comp.props && comp.props.title) || '').toLowerCase();
+    const subtitle = String((comp && comp.props && comp.props.subtitle) || '').toLowerCase();
+    return title.includes(kw) || subtitle.includes(kw);
+}
+
 function editorHasAnyFilter() {
     return getAllCategoryKeys().some(cat => (editorActiveFilters[cat] || []).length > 0);
 }
@@ -5588,8 +5626,15 @@ function editorCardLevelMatchesFilter(comp) {
     return true;
 }
 
+function editorClassMatchesAll(cls) {
+    return editorClassMatchesFilter(cls) && editorClassMatchesKeyword(cls);
+}
+function editorCardLevelMatchesAll(comp) {
+    return editorCardLevelMatchesFilter(comp) && editorCardLevelMatchesKeyword(comp);
+}
+
 function editorComputeFilteredView() {
-    if (!editorHasAnyFilter() || !projectData) { editorFilteredView = null; return; }
+    if (!editorHasAnyFilterOrSearch() || !projectData) { editorFilteredView = null; return; }
     const visibleCardIds = new Set();
     const classMatchMap = {};
     let totalClasses = 0, matchedClasses = 0;
@@ -5597,13 +5642,13 @@ function editorComputeFilteredView() {
         if (c.type !== 'course-category') return;
         const cls = c.props.classes || [];
         totalClasses += cls.length;
-        const hits = cls.filter(editorClassMatchesFilter);
+        const hits = cls.filter(editorClassMatchesAll);
         classMatchMap[c.id] = hits;
         matchedClasses += hits.length;
         if (hits.length > 0) visibleCardIds.add(c.id);
-        else if (cls.length === 0 && editorCardLevelMatchesFilter(c)) visibleCardIds.add(c.id);
+        else if (cls.length === 0 && editorCardLevelMatchesAll(c)) visibleCardIds.add(c.id);
         else if (cls.length === 0) { /* 無班名：留待祖先傳播 */ }
-        else if (editorCardLevelMatchesFilter(c)) visibleCardIds.add(c.id);
+        else if (editorCardLevelMatchesAll(c)) visibleCardIds.add(c.id);
     });
     // 向上傳播：子卡符合 → 祖先也標為可見
     const parentOf = {};
@@ -5625,7 +5670,7 @@ function editorApplyFilter() {
         container.querySelectorAll('.component').forEach(el => el.classList.remove('filter-dimmed', 'filter-hit'));
         document.querySelectorAll('.connector-path').forEach(el => el.classList.remove('filter-dimmed'));
         const stats = document.getElementById('editor-filter-stats');
-        if (stats) stats.innerHTML = '顯示全部';
+        if (stats) stats.innerHTML = FILTER_STATS_EYE_SVG + '<span class="filter-stats-text">全部</span>';
         editorUpdateFilterBadge(0);
         return;
     }
@@ -5643,7 +5688,7 @@ function editorApplyFilter() {
         if (visible.has(id)) {
             const hits = (editorFilteredView.classMatchMap[id] || []).length;
             el.classList.remove('filter-dimmed');
-            if (hits > 0 || editorCardLevelMatchesFilter(comp)) el.classList.add('filter-hit');
+            if (hits > 0 || editorCardLevelMatchesAll(comp)) el.classList.add('filter-hit');
             else el.classList.remove('filter-hit');
         } else {
             el.classList.add('filter-dimmed');
@@ -5667,7 +5712,7 @@ function editorApplyFilter() {
         });
     }
     const stats = document.getElementById('editor-filter-stats');
-    if (stats) stats.innerHTML = '顯示班名 <b>' + editorFilteredView.matchedClasses + '</b> / ' + editorFilteredView.totalClasses + '，類別卡片 <b>' + visible.size + '</b>';
+    if (stats) stats.innerHTML = FILTER_STATS_EYE_SVG + '<span class="filter-stats-text">班名 <b>' + editorFilteredView.matchedClasses + '</b> / ' + editorFilteredView.totalClasses + '，類別卡片 <b>' + visible.size + '</b></span>';
     const totalActive = getAllCategoryKeys().reduce((s, cat) => s + (editorActiveFilters[cat] || []).length, 0);
     editorUpdateFilterBadge(totalActive);
 }
@@ -5750,18 +5795,36 @@ function editorBuildFilterPanel() {
     }
 }
 
+function editorUpdateSearchBadge() {
+    const badge = document.getElementById('editor-search-count-badge');
+    if (!badge) return;
+    if (editorHasAnySearch()) { badge.style.display = ''; badge.textContent = '1'; }
+    else badge.style.display = 'none';
+}
+
 function setupEditorFilterUI() {
     getAllCategoryKeys().forEach(k => { if (!editorActiveFilters[k]) editorActiveFilters[k] = []; });
     const btn = document.getElementById('editor-filter-toggle');
     const panel = document.getElementById('editor-filter-panel');
+    const sBtn = document.getElementById('editor-search-toggle');
+    const sPanel = document.getElementById('editor-search-panel');
+    const sInput = document.getElementById('editor-search-input');
     if (!btn || !panel) return;
     const syncBtn = () => {
         const open = !panel.classList.contains('collapsed');
         btn.style.opacity = open ? '0' : '1';
         btn.style.pointerEvents = open ? 'none' : 'auto';
     };
+    const syncSearchBtn = () => {
+        if (!sBtn || !sPanel) return;
+        const open = !sPanel.classList.contains('collapsed');
+        sBtn.style.opacity = open ? '0' : '1';
+        sBtn.style.pointerEvents = open ? 'none' : 'auto';
+    };
     btn.addEventListener('click', () => {
         editorBuildFilterPanel();
+        // 互斥：開啟篩選時關閉搜尋面板
+        if (sPanel && !sPanel.classList.contains('collapsed')) { sPanel.classList.add('collapsed'); syncSearchBtn(); }
         panel.classList.toggle('collapsed');
         syncBtn();
     });
@@ -5780,22 +5843,79 @@ function setupEditorFilterUI() {
         stats.style.cursor = 'pointer';
         stats.title = '點擊查看篩選命中的卡片與班名清單';
         stats.addEventListener('click', () => {
-            if (!editorHasAnyFilter() || !editorFilteredView) {
-                toast('目前沒有套用任何篩選', 'info');
+            if (!editorHasAnyFilterOrSearch() || !editorFilteredView) {
+                toast('目前沒有套用任何篩選或關鍵字', 'info');
                 return;
             }
             openEditorFilterResultsModal();
         });
     }
-    // F 鍵切換（僅在全螢幕模式且非輸入框焦點）
+
+    // 關鍵字搜尋面板事件
+    if (sBtn && sPanel && sInput) {
+        sBtn.addEventListener('click', () => {
+            // 互斥：開啟搜尋時關閉篩選面板
+            if (!panel.classList.contains('collapsed')) { panel.classList.add('collapsed'); syncBtn(); }
+            sPanel.classList.toggle('collapsed');
+            syncSearchBtn();
+            if (!sPanel.classList.contains('collapsed')) {
+                setTimeout(() => sInput.focus(), 50);
+            }
+        });
+        const closeBtn = document.getElementById('editor-search-close');
+        if (closeBtn) closeBtn.addEventListener('click', () => {
+            sPanel.classList.add('collapsed');
+            syncSearchBtn();
+        });
+        const clearBtn = document.getElementById('editor-search-clear');
+        if (clearBtn) clearBtn.addEventListener('click', () => {
+            sInput.value = '';
+            editorSearchKeyword = '';
+            editorUpdateSearchBadge();
+            editorApplyFilter();
+            sInput.focus();
+        });
+        // 同步初始值
+        sInput.value = editorSearchKeyword || '';
+        let debounceTimer = null;
+        sInput.addEventListener('input', () => {
+            const v = sInput.value;
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+                editorSearchKeyword = v;
+                editorUpdateSearchBadge();
+                editorApplyFilter();
+            }, 250);
+        });
+        sInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                clearTimeout(debounceTimer);
+                editorSearchKeyword = sInput.value;
+                editorUpdateSearchBadge();
+                editorApplyFilter();
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                sPanel.classList.add('collapsed');
+                syncSearchBtn();
+            }
+        });
+        editorUpdateSearchBadge();
+    }
+
+    // F / S 鍵切換（僅在全螢幕模式且非輸入框焦點）
     document.addEventListener('keydown', (e) => {
         if (!document.body.classList.contains('fullscreen-mode')) return;
         const tag = (e.target.tagName || '').toUpperCase();
         if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
         if (e.key === 'f' || e.key === 'F') {
-            // 避免攔到瀏覽器內建 Find；僅當 panel 存在時觸發
             e.preventDefault();
             btn.click();
+        } else if (e.key === 's' || e.key === 'S') {
+            // 注意：避免覆蓋 Ctrl/Cmd+S 儲存
+            if (e.ctrlKey || e.metaKey) return;
+            e.preventDefault();
+            if (sBtn) sBtn.click();
         }
     });
 }
@@ -5972,6 +6092,15 @@ function openEditorFilterResultsModal() {
             activeCount++;
         });
     });
+    // 關鍵字 chip
+    if (editorHasAnySearch()) {
+        const kw = String(editorSearchKeyword || '').trim();
+        h += '<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:999px;background:linear-gradient(135deg,#14b8a6,#0d9488);color:#fff;font-weight:600;font-size:11px;box-shadow:0 1px 2px rgba(0,0,0,0.15);">';
+        h += '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>';
+        h += '<span>關鍵字</span><span>·</span>' + escapeHtml(kw);
+        h += '</span>';
+        activeCount++;
+    }
     if (activeCount === 0) h += '<span style="color:var(--text-muted);font-style:italic;">無</span>';
     h += '</div>';
     // 統計
@@ -5993,7 +6122,12 @@ function openEditorFilterResultsModal() {
                 const card = row.card;
                 const levelClass = row.isRoot ? 'frm-card-main' : 'frm-card-sub';
                 h += '<div class="frm-card-row frm-tree-card ' + levelClass + '" data-card-id="' + escapeAttr(card.id) + '" title="點擊定位到畫布上">';
+                h += '<div class="frm-card-head">';
+                if (!row.isRoot) {
+                    h += '<img class="frm-card-dots" src="assets/dots.png" alt="" draggable="false">';
+                }
                 h += '<div class="frm-card-title">' + escapeHtml(card.props.title || '(未命名)') + '</div>';
+                h += '</div>';
                 if (!row.isRoot) {
                     const path = buildEditorCardPath(card.id, false);
                     if (path) h += '<div class="frm-card-path">' + escapeHtml(path) + '</div>';
@@ -6003,7 +6137,10 @@ function openEditorFilterResultsModal() {
             } else {
                 // kind === 'class'
                 h += '<div class="frm-class-row" data-card-id="' + escapeAttr(row.cardId) + '" title="點擊定位到所屬卡片">';
-                h += '<span class="frm-class-bullet">·</span><span class="frm-class-name">' + escapeHtml(row.cl.name || '') + '</span>';
+                h += '<div class="frm-class-head">';
+                h += '<img class="frm-class-dot" src="assets/dot.png" alt="" draggable="false">';
+                h += '<span class="frm-class-name">' + escapeHtml(row.cl.name || '') + '</span>';
+                h += '</div>';
                 h += renderEditorClassTagChips(row.cl);
                 h += '</div>';
             }
@@ -6614,6 +6751,22 @@ async function exportHTML() {
         const safeAssets = JSON.stringify(assets).replace(/<\/script>/gi, '<\\/script>').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
         let css = '';
         try { const r = await fetch('app.css'); if (r.ok) css = await r.text(); } catch (e) {}
+        // 把 dot.png / dots.png 轉成 base64 data URI 內嵌（讓匯出的 HTML 可獨立執行不依賴 assets/）
+        async function fetchAsDataURI(path) {
+            try {
+                const r = await fetch(path);
+                if (!r.ok) return '';
+                const blob = await r.blob();
+                return await new Promise((resolve) => {
+                    const fr = new FileReader();
+                    fr.onload = () => resolve(fr.result);
+                    fr.onerror = () => resolve('');
+                    fr.readAsDataURL(blob);
+                });
+            } catch (e) { return ''; }
+        }
+        const dotDataURI = await fetchAsDataURI('assets/dot.png');
+        const dotsDataURI = await fetchAsDataURI('assets/dots.png');
         const viewerScript = buildViewerScript();
         const currentViewMode = AppStorage.Settings.getViewMode();
         const html = `<!DOCTYPE html><html lang="zh-TW" data-theme="${AppStorage.Settings.getTheme()}" data-palette="${AppStorage.Settings.getPalette()}" data-view-mode="${currentViewMode}">
@@ -6663,16 +6816,23 @@ async function exportHTML() {
 .filter-chip .chip-count { font-size: 10px; opacity: 0.75; padding-left: 4px; border-left: 1px solid currentColor; margin-left: 2px; }
 .filter-stats {
     font-size: 12px; color: var(--text-secondary);
-    padding: 2px 6px; border-radius: 6px;
+    padding: 2px 8px; border-radius: 6px;
     transition: background 0.15s, color 0.15s;
     user-select: none;
+    display: inline-flex; align-items: center; gap: 6px; line-height: 1.4;
 }
 .filter-stats b { color: var(--primary, #6366f1); }
 .filter-stats:hover {
     background: var(--bg-elev-2, #f1f5f9);
     color: var(--text-primary);
 }
-.filter-stats:hover::after { content: ' 🔎'; font-size: 11px; }
+.filter-stats .filter-stats-eye {
+    width: 16px; height: 16px; flex: 0 0 16px;
+    color: var(--primary, #6366f1);
+    transition: transform 0.15s;
+}
+.filter-stats:hover .filter-stats-eye { transform: scale(1.1); }
+.filter-stats-text { display: inline-block; }
 
 /* 從「篩選結果 modal」點擊卡片後的定位閃爍效果 */
 @keyframes compFlashLocate {
@@ -6739,12 +6899,17 @@ async function exportHTML() {
     color: var(--text-secondary);
 }
 .frm-tree-row .frm-class-row:hover { background: var(--bg-elev-2); transform: translateX(2px); }
-.frm-class-bullet {
-    color: var(--text-muted); margin-right: 6px; font-weight: 700;
-    font-size: 14px; line-height: 1; display: inline-block; transform: translateY(-1px);
+.frm-class-head { display: flex; align-items: center; gap: 8px; }
+.frm-class-dot {
+    width: 10px; height: 10px; flex: 0 0 10px;
+    object-fit: contain; user-select: none; pointer-events: none;
 }
-.frm-class-name {
-    font-size: 13px; font-weight: 500; color: var(--text-primary); line-height: 1.3;
+.frm-class-name { font-size: 13px; font-weight: 500; color: var(--text-primary); line-height: 1.3; }
+.frm-card-head { display: flex; align-items: center; gap: 8px; }
+.frm-card-dots {
+    width: 16px; height: 16px; flex: 0 0 16px;
+    object-fit: contain; opacity: 0.7;
+    user-select: none; pointer-events: none;
 }
 
 .filter-toggle-btn {
@@ -6773,6 +6938,77 @@ async function exportHTML() {
     background: #ef4444; color: #fff; font-size: 10px; font-weight: 700;
     border-radius: 999px; padding: 1px 6px; min-width: 18px; text-align: center;
 }
+
+/* 關鍵字搜尋按鈕（位於篩選按鈕下方） */
+.search-toggle-btn {
+    position: fixed; top: 122px; right: 12px; z-index: 95;
+    width: 42px; height: 42px; border-radius: 50%;
+    background: linear-gradient(135deg, #14b8a6 0%, #0d9488 100%);
+    color: #fff; border: none; cursor: pointer;
+    box-shadow:
+        0 2px 4px rgba(20,184,166,0.25),
+        0 4px 12px -2px rgba(20,184,166,0.35),
+        inset 0 1px 0 rgba(255,255,255,0.25);
+    display: flex; align-items: center; justify-content: center;
+    transition: transform 0.2s, opacity 0.2s, box-shadow 0.2s;
+}
+.search-toggle-btn:hover {
+    transform: scale(1.08);
+    box-shadow:
+        0 3px 6px rgba(20,184,166,0.3),
+        0 8px 18px -4px rgba(20,184,166,0.45),
+        inset 0 1px 0 rgba(255,255,255,0.3);
+}
+.search-toggle-btn svg { width: 22px; height: 22px; display: block; }
+.search-toggle-btn .badge {
+    position: absolute; top: -4px; right: -4px;
+    background: #ef4444; color: #fff; font-size: 10px; font-weight: 700;
+    border-radius: 999px; padding: 1px 6px; min-width: 18px; text-align: center;
+}
+
+/* 關鍵字搜尋面板 */
+.search-panel {
+    position: fixed; top: 70px; right: 12px;
+    width: 320px;
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 14px; box-shadow: var(--shadow-md);
+    display: flex; flex-direction: column; z-index: 96;
+    transform: translateX(0);
+    transition: transform 0.3s ease, opacity 0.3s ease;
+    overflow: hidden;
+}
+.search-panel.collapsed { transform: translateX(110%); opacity: 0; pointer-events: none; }
+.search-panel-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 14px; border-bottom: 1px solid var(--border);
+    background: var(--bg-elev-1, var(--bg-sidebar));
+}
+.search-panel-header h3 { font-size: 14px; font-weight: 700; color: var(--text-primary); margin: 0; }
+.search-panel-body { padding: 12px 14px; }
+.search-input-wrap {
+    position: relative; display: flex; align-items: center;
+    background: var(--bg-elev-1, var(--bg-canvas-outer));
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: 0 10px;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+.search-input-wrap:focus-within {
+    border-color: #14b8a6;
+    box-shadow: 0 0 0 3px rgba(20,184,166,0.15);
+}
+.search-input-icon { width: 16px; height: 16px; color: var(--text-muted); flex: 0 0 16px; margin-right: 6px; }
+.search-input-wrap input {
+    flex: 1; border: none; outline: none; background: transparent;
+    color: var(--text-primary); font-size: 14px; padding: 9px 0;
+    font-family: inherit;
+}
+.search-input-wrap input::placeholder { color: var(--text-muted); }
+.search-tips { margin-top: 10px; font-size: 11px; color: var(--text-muted); line-height: 1.5; }
+.search-tips b { color: var(--text-secondary); font-weight: 700; }
+
+/* 全螢幕模式：搜尋按鈕同樣下移 */
+body.fullscreen-mode .search-toggle-btn { top: 64px; right: 12px; z-index: 9990; }
+body.fullscreen-mode .search-panel { top: 12px; right: 12px; z-index: 9991; }
 
 /* 篩選結果視覺提示 */
 .component.filter-dimmed { opacity: 0.18; filter: saturate(0.4); transition: opacity 0.25s, filter 0.25s; }
@@ -6933,6 +7169,7 @@ body.fullscreen-mode.fs-pen-active .fs-color-swatches { display: inline-flex; }
     <div class="minimap-resize-handle" id="vw-minimap-resize"></div>
 </aside>
 <button class="filter-toggle-btn" id="filter-toggle-btn" title="標籤篩選 (F)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg><span class="badge" id="filter-count-badge" style="display:none;">0</span></button>
+<button class="search-toggle-btn" id="search-toggle-btn" title="關鍵字搜尋 (S)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg><span class="badge" id="search-count-badge" style="display:none;">1</span></button>
 <aside class="filter-panel collapsed" id="filter-panel">
     <div class="filter-panel-header">
         <h3>🔍 標籤篩選</h3>
@@ -6943,14 +7180,30 @@ body.fullscreen-mode.fs-pen-active .fs-color-swatches { display: inline-flex; }
     </div>
     <div class="filter-panel-body" id="filter-body"></div>
     <div class="filter-panel-footer">
-        <span class="filter-stats" id="filter-stats">顯示全部</span>
+        <span class="filter-stats" id="filter-stats" title="點擊查看篩選命中的卡片與班名清單"><svg class="filter-stats-eye" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M2.5 12s3.5-7 9.5-7 9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8"/></svg><span class="filter-stats-text">全部</span></span>
         <span style="font-size:11px;color:var(--text-muted);">同類別=任一即可<br>跨類別=須全部符合</span>
+    </div>
+</aside>
+<aside class="search-panel collapsed" id="search-panel">
+    <div class="search-panel-header">
+        <h3>🔎 關鍵字搜尋</h3>
+        <div style="display:flex;gap:6px;">
+            <button class="btn btn-small" id="search-clear" title="清除關鍵字">清除</button>
+            <button class="btn btn-small" id="search-close" title="關閉面板">✕</button>
+        </div>
+    </div>
+    <div class="search-panel-body">
+        <div class="search-input-wrap">
+            <svg class="search-input-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+            <input type="text" id="search-input" placeholder="輸入關鍵字（標題 / 班名 / 副標題）…" autocomplete="off">
+        </div>
+        <div class="search-tips">搜尋會與標籤篩選以 <b>AND</b> 結合，符合條件的類別卡片與班名才會被命中。</div>
     </div>
 </aside>
 <div class="viewer-canvas-wrapper" id="vw-outer"><div class="canvas-wrapper"><div id="canvas" class="canvas">
 <svg id="connector-layer" class="connector-layer" xmlns="http://www.w3.org/2000/svg"><defs id="connector-defs"></defs><g id="connector-group"></g></svg>
 </div></div></div>
-<script>window.EMBEDDED_PROJECT=${safeProject};window.EMBEDDED_ASSETS=${safeAssets};window.EMBEDDED_VIEW_MODE=${JSON.stringify(currentViewMode)};${viewerScript}</script>
+<script>window.EMBEDDED_PROJECT=${safeProject};window.EMBEDDED_ASSETS=${safeAssets};window.EMBEDDED_VIEW_MODE=${JSON.stringify(currentViewMode)};window.__viewerDotSrc=${JSON.stringify(dotDataURI)};window.__viewerDotsSrc=${JSON.stringify(dotsDataURI)};${viewerScript}</script>
 </body></html>`;
         const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
         downloadBlob(blob, (projectData.name || 'diagram') + '.html');
@@ -6984,6 +7237,8 @@ function buildViewerScript() {
     const activeFilters = {};
     TAG_CATEGORY_KEYS.forEach(k => activeFilters[k] = []);
     let filteredView = null; // { visibleCardIds:Set, classMatches:Object<id, Class[]>, totalClasses, matchedClasses }
+    // 篩選統計列「眼睛」圖示
+    const FILTER_STATS_EYE_SVG = '<svg class="filter-stats-eye" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M2.5 12s3.5-7 9.5-7 9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8"/></svg>';
     function findTagById(cat, id){ if(!projectData.tagLibrary[cat]) return null; return projectData.tagLibrary[cat].find(t=>t.id===id); }
     function escapeHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
     function escapeAttr(s){ return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -7197,7 +7452,25 @@ function buildViewerScript() {
         applyFilter();
     }
 
-    // ========== 標籤篩選 ==========
+    // ========== 標籤篩選 + 關鍵字搜尋 ==========
+    let searchKeyword = '';
+    function normalizeKw(s){ return String(s == null ? '' : s).trim().toLowerCase(); }
+    function hasAnySearch(){ return normalizeKw(searchKeyword).length > 0; }
+    function hasAnyFilterOrSearch(){ return hasAnyFilter() || hasAnySearch(); }
+    function classMatchesKeyword(cls){
+        const kw = normalizeKw(searchKeyword);
+        if (!kw) return true;
+        return String((cls && cls.name) || '').toLowerCase().includes(kw);
+    }
+    function cardLevelMatchesKeyword(comp){
+        const kw = normalizeKw(searchKeyword);
+        if (!kw) return true;
+        const title = String((comp && comp.props && comp.props.title) || '').toLowerCase();
+        const subtitle = String((comp && comp.props && comp.props.subtitle) || '').toLowerCase();
+        return title.includes(kw) || subtitle.includes(kw);
+    }
+    function classMatchesAll(cls){ return classMatches(cls) && classMatchesKeyword(cls); }
+    function cardLevelMatchesAll(comp){ return cardLevelMatches(comp) && cardLevelMatchesKeyword(comp); }
     function hasAnyFilter(){
         return TAG_CATEGORY_KEYS.some(cat => (activeFilters[cat] || []).length > 0);
     }
@@ -7226,7 +7499,7 @@ function buildViewerScript() {
         return true;
     }
     function computeFilteredView(){
-        if (!hasAnyFilter()) { filteredView = null; return; }
+        if (!hasAnyFilterOrSearch()) { filteredView = null; return; }
         const visibleCardIds = new Set();
         const classMatchMap = {};
         let totalClasses = 0, matchedClasses = 0;
@@ -7234,14 +7507,14 @@ function buildViewerScript() {
             if (c.type !== 'course-category') return;
             const cls = c.props.classes || [];
             totalClasses += cls.length;
-            const hits = cls.filter(classMatches);
+            const hits = cls.filter(classMatchesAll);
             classMatchMap[c.id] = hits;
             matchedClasses += hits.length;
             if (hits.length > 0) visibleCardIds.add(c.id);
-            else if (cls.length === 0 && cardLevelMatches(c)) visibleCardIds.add(c.id);
+            else if (cls.length === 0 && cardLevelMatchesAll(c)) visibleCardIds.add(c.id);
             else if (cls.length === 0) {
                 // 無班名的卡片：保留結構，看祖先傳播
-            } else if (cardLevelMatches(c)) {
+            } else if (cardLevelMatchesAll(c)) {
                 visibleCardIds.add(c.id);
             }
         });
@@ -7263,7 +7536,7 @@ function buildViewerScript() {
             container.querySelectorAll('.component').forEach(el => el.classList.remove('filter-dimmed', 'filter-hit'));
             document.querySelectorAll('.connector-path').forEach(el => el.classList.remove('filter-dimmed'));
             const stats = document.getElementById('filter-stats');
-            if (stats) stats.innerHTML = '顯示全部';
+            if (stats) stats.innerHTML = FILTER_STATS_EYE_SVG + '<span class="filter-stats-text">全部</span>';
             updateFilterBadge(0);
             // 同步更新所有卡片的「班名統計」回原值
             updateCardClassCounts(null);
@@ -7285,7 +7558,7 @@ function buildViewerScript() {
             if (visible.has(id)) {
                 const hits = (filteredView.classMatchMap[id] || []).length;
                 el.classList.remove('filter-dimmed');
-                if (hits > 0 || cardLevelMatches(comp)) el.classList.add('filter-hit');
+                if (hits > 0 || cardLevelMatchesAll(comp)) el.classList.add('filter-hit');
                 else el.classList.remove('filter-hit');
             } else {
                 el.classList.add('filter-dimmed');
@@ -7313,7 +7586,7 @@ function buildViewerScript() {
         });
         // 統計
         const stats = document.getElementById('filter-stats');
-        if (stats) stats.innerHTML = '顯示班名 <b>' + filteredView.matchedClasses + '</b> / ' + filteredView.totalClasses + '，類別卡片 <b>' + visible.size + '</b>';
+        if (stats) stats.innerHTML = FILTER_STATS_EYE_SVG + '<span class="filter-stats-text">班名 <b>' + filteredView.matchedClasses + '</b> / ' + filteredView.totalClasses + '，類別卡片 <b>' + visible.size + '</b></span>';
         const totalActive = TAG_CATEGORY_KEYS.reduce((s, cat) => s + (activeFilters[cat] || []).length, 0);
         updateFilterBadge(totalActive);
         // 更新卡片上的班名數字（顯示為 命中/總共）
@@ -7486,7 +7759,7 @@ function buildViewerScript() {
                 });
             } else {
                 const cls = cur.props.classes || [];
-                const filterOn = hasAnyFilter();
+                const filterOn = hasAnyFilterOrSearch();
                 const matchedSet = new Set((filterOn && filteredView ? (filteredView.classMatchMap[cur.id] || []) : cls).map(c => c.id || c.name));
                 const visibleCount = filterOn ? matchedSet.size : cls.length;
                 h += '<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">';
@@ -7549,17 +7822,34 @@ function buildViewerScript() {
         renderCurrent();
     }
 
-    // 篩選按鈕／面板事件
+    function updateSearchBadge(){
+        const badge = document.getElementById('search-count-badge');
+        if (!badge) return;
+        if (hasAnySearch()) { badge.style.display = ''; badge.textContent = '1'; }
+        else badge.style.display = 'none';
+    }
+
+    // 篩選按鈕／面板事件 + 關鍵字搜尋
     function setupFilterUI(){
         buildFilterPanel();
         const btn = document.getElementById('filter-toggle-btn');
         const panel = document.getElementById('filter-panel');
+        const sBtn = document.getElementById('search-toggle-btn');
+        const sPanel = document.getElementById('search-panel');
+        const sInput = document.getElementById('search-input');
         const syncBtn = () => {
             const open = !panel.classList.contains('collapsed');
             btn.style.opacity = open ? '0' : '1';
             btn.style.pointerEvents = open ? 'none' : 'auto';
         };
+        const syncSBtn = () => {
+            if (!sBtn || !sPanel) return;
+            const open = !sPanel.classList.contains('collapsed');
+            sBtn.style.opacity = open ? '0' : '1';
+            sBtn.style.pointerEvents = open ? 'none' : 'auto';
+        };
         btn.addEventListener('click', () => {
+            if (sPanel && !sPanel.classList.contains('collapsed')) { sPanel.classList.add('collapsed'); syncSBtn(); }
             panel.classList.toggle('collapsed');
             syncBtn();
         });
@@ -7578,15 +7868,74 @@ function buildViewerScript() {
             stats.style.cursor = 'pointer';
             stats.title = '點擊查看篩選命中的卡片與班名清單';
             stats.addEventListener('click', () => {
-                if (!hasAnyFilter() || !filteredView) return;
+                if (!hasAnyFilterOrSearch() || !filteredView) return;
                 openFilterResultsModal();
             });
         }
-        // F 鍵切換
+
+        // 關鍵字搜尋面板
+        if (sBtn && sPanel && sInput) {
+            sBtn.addEventListener('click', () => {
+                if (!panel.classList.contains('collapsed')) { panel.classList.add('collapsed'); syncBtn(); }
+                sPanel.classList.toggle('collapsed');
+                syncSBtn();
+                if (!sPanel.classList.contains('collapsed')) {
+                    setTimeout(() => sInput.focus(), 50);
+                }
+            });
+            const closeBtn = document.getElementById('search-close');
+            if (closeBtn) closeBtn.addEventListener('click', () => {
+                sPanel.classList.add('collapsed');
+                syncSBtn();
+            });
+            const clearBtn = document.getElementById('search-clear');
+            if (clearBtn) clearBtn.addEventListener('click', () => {
+                sInput.value = '';
+                searchKeyword = '';
+                updateSearchBadge();
+                applyFilter();
+                sInput.focus();
+            });
+            sInput.value = searchKeyword || '';
+            let debounceTimer = null;
+            sInput.addEventListener('input', () => {
+                const v = sInput.value;
+                clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(() => {
+                    searchKeyword = v;
+                    updateSearchBadge();
+                    applyFilter();
+                }, 250);
+            });
+            sInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    clearTimeout(debounceTimer);
+                    searchKeyword = sInput.value;
+                    updateSearchBadge();
+                    applyFilter();
+                } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    sPanel.classList.add('collapsed');
+                    syncSBtn();
+                }
+            });
+            updateSearchBadge();
+        }
+
+        // F / S 鍵切換
         document.addEventListener('keydown', (e) => {
             if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
             if (e.key === 'f' || e.key === 'F') { e.preventDefault(); btn.click(); }
-            if (e.key === 'Escape' && !panel.classList.contains('collapsed')) { panel.classList.add('collapsed'); syncBtn(); }
+            else if (e.key === 's' || e.key === 'S') {
+                if (e.ctrlKey || e.metaKey) return;
+                e.preventDefault();
+                if (sBtn) sBtn.click();
+            }
+            else if (e.key === 'Escape') {
+                if (!panel.classList.contains('collapsed')) { panel.classList.add('collapsed'); syncBtn(); }
+                else if (sPanel && !sPanel.classList.contains('collapsed')) { sPanel.classList.add('collapsed'); syncSBtn(); }
+            }
         });
     }
 
@@ -7737,6 +8086,14 @@ function buildViewerScript() {
                 activeCount++;
             });
         });
+        if (hasAnySearch()) {
+            const kw = String(searchKeyword || '').trim();
+            h += '<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:999px;background:linear-gradient(135deg,#14b8a6,#0d9488);color:#fff;font-weight:600;font-size:11px;box-shadow:0 1px 2px rgba(0,0,0,0.15);">';
+            h += '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>';
+            h += '<span>關鍵字</span><span>·</span>' + escapeHtml(kw);
+            h += '</span>';
+            activeCount++;
+        }
         if (activeCount === 0) h += '<span style="color:var(--text-muted);font-style:italic;">無</span>';
         h += '</div>';
         h += '<div style="font-size:12px;color:var(--text-secondary);">命中類別卡片 <b style="color:var(--primary,#6366f1);">' + visible.size + '</b>，命中班名 <b style="color:var(--primary,#6366f1);">' + matchedClasses + '</b> / ' + filteredView.totalClasses + '</div>';
@@ -7757,7 +8114,12 @@ function buildViewerScript() {
                     const card = row.card;
                     const levelClass = row.isRoot ? 'frm-card-main' : 'frm-card-sub';
                     h += '<div class="vw-frm-row frm-tree-card ' + levelClass + '" data-card-id="' + escapeAttr(card.id) + '" title="點擊定位到畫布上">';
+                    h += '<div class="frm-card-head">';
+                    if (!row.isRoot) {
+                        h += '<img class="frm-card-dots" src="' + (window.__viewerDotsSrc || 'data:image/png;base64,') + '" alt="" draggable="false">';
+                    }
                     h += '<div class="frm-card-title">' + escapeHtml(card.props.title || '(未命名)') + '</div>';
+                    h += '</div>';
                     if (!row.isRoot) {
                         const path = buildViewerCardPath(card.id);
                         if (path) h += '<div class="frm-card-path">' + escapeHtml(path) + '</div>';
@@ -7767,7 +8129,10 @@ function buildViewerScript() {
                 } else {
                     // kind === 'class'
                     h += '<div class="frm-class-row" data-card-id="' + escapeAttr(row.cardId) + '" title="點擊定位到所屬卡片">';
-                    h += '<span class="frm-class-bullet">·</span><span class="frm-class-name">' + escapeHtml(row.cl.name || '') + '</span>';
+                    h += '<div class="frm-class-head">';
+                    h += '<img class="frm-class-dot" src="' + (window.__viewerDotSrc || 'data:image/png;base64,') + '" alt="" draggable="false">';
+                    h += '<span class="frm-class-name">' + escapeHtml(row.cl.name || '') + '</span>';
+                    h += '</div>';
                     h += vwRenderClassTagChips(row.cl);
                     h += '</div>';
                 }
