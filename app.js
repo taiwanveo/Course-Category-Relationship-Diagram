@@ -6843,9 +6843,33 @@ async function exportHTML() {
 <head><meta charset="UTF-8"><title>${escapeHtml(projectData.name || '分類圖')}</title>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>${css}
-.viewer-toolbar { position: fixed; top: 12px; left: 12px; right: 12px; display: flex; justify-content: space-between; align-items: center; padding: 8px 16px; background: var(--bg-card); border-radius: 999px; box-shadow: var(--shadow-md); z-index: 100; }
-.viewer-toolbar h1 { font-size: 16px; font-weight: 700; color: var(--text-primary); }
+.viewer-toolbar { position: fixed; top: 12px; left: 12px; right: 12px; display: flex; justify-content: space-between; align-items: center; padding: 8px 16px; background: var(--bg-card); border-radius: 24px; box-shadow: var(--shadow-md); z-index: 100; }
+.vw-toolbar-title { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.viewer-toolbar h1 { font-size: 16px; font-weight: 700; color: var(--text-primary); line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vw-toolbar-subject { font-size: 11px; color: var(--text-muted); font-weight: 400; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .viewer-toolbar-right { display: flex; gap: 8px; align-items: center; }
+/* 開啟檢視器時的一次性提示 toast（置中於頁面正上方，5 秒後自動消失） */
+.vw-hint-toast {
+    position: fixed; top: 96px; left: 50%; transform: translateX(-50%) translateY(-12px);
+    z-index: 9000;
+    background: rgba(15,23,42,0.92); color: #fff;
+    padding: 12px 20px; border-radius: 999px;
+    font-size: 14px; font-weight: 500;
+    box-shadow: 0 8px 24px -6px rgba(0,0,0,0.4), 0 4px 12px -2px rgba(0,0,0,0.25);
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    display: flex; align-items: center; gap: 10px;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    max-width: calc(100vw - 40px);
+}
+.vw-hint-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
+.vw-hint-toast .vw-hint-icon { font-size: 18px; flex-shrink: 0; }
+.vw-hint-toast .vw-hint-close {
+    background: transparent; border: none; color: rgba(255,255,255,0.7);
+    cursor: pointer; font-size: 14px; padding: 0 0 0 4px;
+    transition: color 0.15s;
+}
+.vw-hint-toast .vw-hint-close:hover { color: #fff; }
 .viewer-canvas-wrapper { width: 100vw; height: 100vh; overflow: auto; padding: 60px 20px 20px; box-sizing: border-box; background: var(--bg-canvas-outer); }
 
 /* 篩選面板（可摺疊，靠右） */
@@ -7186,7 +7210,11 @@ body.fullscreen-mode.fs-pen-active .fs-color-swatches { display: inline-flex; }
 .fs-color-swatch:hover { transform: scale(1.15); }
 .fs-color-swatch.active { border: 2px solid #fff; box-shadow: 0 0 0 2px rgba(99,102,241,0.6); transform: scale(1.1); }
 </style></head>
-<body><div class="viewer-toolbar"><h1>${escapeHtml(projectData.name || '分類圖')} <span style="font-size:11px;color:var(--text-muted);font-weight:400;">學科：${escapeHtml(projectData.subject || '')}</span></h1>
+<body><div class="viewer-toolbar">
+<div class="vw-toolbar-title">
+    <h1>${escapeHtml(projectData.name || '分類圖')}</h1>
+    ${projectData.subject ? `<div class="vw-toolbar-subject">學科：${escapeHtml(projectData.subject)}</div>` : ''}
+</div>
 <div class="viewer-toolbar-right">
 <button class="btn btn-small" id="vw-view-mode" title="切換顯示模式：完整 ↔ 骨架"><span id="vw-view-mode-icon">${currentViewMode === 'skeleton' ? '👁️' : '🦴'}</span> <span id="vw-view-mode-label">${currentViewMode === 'skeleton' ? '切回完整' : '切到骨架'}</span></button>
 <button class="btn btn-small" id="vw-toggle-minimap" title="顯示／隱藏縮圖 (M)">🗺️ 縮圖</button>
@@ -7273,6 +7301,12 @@ body.fullscreen-mode.fs-pen-active .fs-color-swatches { display: inline-flex; }
 <div class="viewer-canvas-wrapper" id="vw-outer"><div class="canvas-wrapper"><div id="canvas" class="canvas">
 <svg id="connector-layer" class="connector-layer" xmlns="http://www.w3.org/2000/svg"><defs id="connector-defs"></defs><g id="connector-group"></g></svg>
 </div></div></div>
+<div id="hover-preview" class="hover-preview" style="display:none;"></div>
+<div id="vw-hint-toast" class="vw-hint-toast" role="status" aria-live="polite">
+    <span class="vw-hint-icon">🖐️</span>
+    <span>按住 <b>Space</b> + 滑鼠拖曳，或 <b>滑鼠中鍵</b> 可平移畫布</span>
+    <button class="vw-hint-close" type="button" aria-label="關閉提示">✕</button>
+</div>
 <script>window.EMBEDDED_PROJECT=${safeProject};window.EMBEDDED_ASSETS=${safeAssets};window.EMBEDDED_VIEW_MODE=${JSON.stringify(currentViewMode)};window.__viewerDotSrc=${JSON.stringify(dotDataURI)};window.__viewerDotsSrc=${JSON.stringify(dotsDataURI)};${viewerScript}</script>
 </body></html>`;
         const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
@@ -7396,6 +7430,12 @@ function buildViewerScript() {
                     div.addEventListener('dblclick', () => openClassPopup(comp));
                 }
             }
+            // 滑鼠 hover 顯示卡片資訊預覽（標籤聯集 + 班名摘要）
+            if (!isSkeleton) {
+                div.addEventListener('mouseenter', (e) => showCardHoverPreview(comp, e));
+                div.addEventListener('mousemove', (e) => moveHoverPreview(e));
+                div.addEventListener('mouseleave', () => hideHoverPreview());
+            }
         } else if (comp.type === 'text') {
             div.textContent = comp.props.text || '';
             div.style.fontFamily = s.fontFamily || 'inherit'; div.style.fontSize = (s.fontSize || 20) + 'px';
@@ -7422,6 +7462,90 @@ function buildViewerScript() {
         return div;
     }
     function getComp(id){ return projectData.components.find(c=>c.id===id); }
+
+    // ========== 卡片 hover 預覽（與編輯器行為一致：標籤聯集 + 班名摘要） ==========
+    let _vwHoverHideTimer = null;
+    function aggregateCardTags(comp){
+        const result = {};
+        TAG_CATEGORY_KEYS.forEach(k => result[k] = new Set());
+        const at = (comp.props && comp.props.assignedTags) || {};
+        TAG_CATEGORY_KEYS.forEach(cat => (at[cat] || []).forEach(id => result[cat].add(id)));
+        (comp.props.classes || []).forEach(cl => {
+            if (!cl.tags) return;
+            TAG_CATEGORY_KEYS.forEach(cat => {
+                (cl.tags[cat] || []).forEach(name => {
+                    const tag = (projectData.tagLibrary[cat] || []).find(t => t.name === name);
+                    if (tag) result[cat].add(tag.id);
+                });
+            });
+        });
+        const out = {};
+        TAG_CATEGORY_KEYS.forEach(cat => out[cat] = Array.from(result[cat]));
+        return out;
+    }
+    function showCardHoverPreview(comp, e){
+        if (!comp || comp.type !== 'course-category') return;
+        if (currentViewMode === 'skeleton') return;
+        if (_vwHoverHideTimer) { clearTimeout(_vwHoverHideTimer); _vwHoverHideTimer = null; }
+        const wrap = document.getElementById('hover-preview');
+        if (!wrap) return;
+        const aggregate = aggregateCardTags(comp);
+        let html = '<div class="hover-preview-title">' + escapeHtml(comp.props.title || '未命名') + '</div>';
+        TAG_CATEGORY_KEYS.forEach(cat => {
+            const ids = aggregate[cat];
+            if (!ids || ids.length === 0) return;
+            html += '<div class="hover-preview-section">' + escapeHtml(TAG_CATEGORY_LABELS[cat] || cat) + '</div><div class="hover-preview-tags">';
+            ids.forEach(id => {
+                const tag = findTagById(cat, id); if (!tag) return;
+                html += '<span class="hover-preview-tag" style="background:' + tag.color + ';">' + escapeHtml(tag.name) + '</span>';
+            });
+            html += '</div>';
+        });
+        const classes = comp.props.classes || [];
+        html += '<div class="hover-preview-section">班名 (' + classes.length + ')</div>';
+        if (classes.length === 0) html += '<div style="font-size:12px;color:var(--text-muted);">尚無班名</div>';
+        else {
+            html += '<div style="font-size:12px;color:var(--text-secondary);max-height:120px;overflow:hidden;line-height:1.5;">';
+            classes.slice(0, 8).forEach(cl => html += '· ' + escapeHtml(cl.name) + '<br>');
+            if (classes.length > 8) html += '… 共 ' + classes.length + ' 個（雙擊類別查看全部）';
+            html += '</div>';
+        }
+        wrap.innerHTML = html;
+        wrap.style.display = 'block';
+        moveHoverPreview(e);
+    }
+    function moveHoverPreview(e){
+        const wrap = document.getElementById('hover-preview');
+        if (!wrap || wrap.style.display === 'none') return;
+        const r = wrap.getBoundingClientRect();
+        const W = window.innerWidth, H = window.innerHeight;
+        const margin = 8, gap = 16;
+        const cx = e.clientX, cy = e.clientY;
+        const fitsRightX = (cx + gap + r.width)  <= (W - margin);
+        const fitsLeftX  = (cx - gap - r.width)  >= margin;
+        const fitsBelowY = (cy + gap + r.height) <= (H - margin);
+        const fitsAboveY = (cy - gap - r.height) >= margin;
+        let x, y;
+        if      (fitsRightX && fitsBelowY) { x = cx + gap;            y = cy + gap; }
+        else if (fitsLeftX  && fitsBelowY) { x = cx - gap - r.width;  y = cy + gap; }
+        else if (fitsRightX && fitsAboveY) { x = cx + gap;            y = cy - gap - r.height; }
+        else if (fitsLeftX  && fitsAboveY) { x = cx - gap - r.width;  y = cy - gap - r.height; }
+        else if (fitsRightX) { x = cx + gap; y = Math.max(margin, Math.min(H - r.height - margin, cy - r.height / 2)); }
+        else if (fitsLeftX)  { x = cx - gap - r.width; y = Math.max(margin, Math.min(H - r.height - margin, cy - r.height / 2)); }
+        else {
+            x = (cx < W / 2) ? Math.max(margin, W - r.width - margin) : margin;
+            y = Math.max(margin, Math.min(H - r.height - margin, cy - r.height / 2));
+        }
+        wrap.style.left = x + 'px';
+        wrap.style.top  = y + 'px';
+    }
+    function hideHoverPreview(){
+        _vwHoverHideTimer = setTimeout(() => {
+            const wrap = document.getElementById('hover-preview');
+            if (wrap) wrap.style.display = 'none';
+        }, 80);
+    }
+
     function composeBg(bg, op){
         if (!bg || bg === 'transparent') return '';
         var v = (op == null) ? 100 : Number(op);
@@ -8342,6 +8466,24 @@ function buildViewerScript() {
     applyViewMode();
     // 預設以「寬度優先」對齊瀏覽器右側
     setTimeout(fitZoomViewer, 50);
+
+    // ========== 一次性提示 toast：頁面正上方顯示 5 秒，告知 Space + 拖曳 / 中鍵可平移 ==========
+    (function showOneTimeHintToast(){
+        const t = document.getElementById('vw-hint-toast');
+        if (!t) return;
+        let dismissTimer = null;
+        const dismiss = () => {
+            if (dismissTimer) { clearTimeout(dismissTimer); dismissTimer = null; }
+            t.classList.remove('show');
+        };
+        const closeBtn = t.querySelector('.vw-hint-close');
+        if (closeBtn) closeBtn.addEventListener('click', dismiss);
+        // 進場後稍微延遲，讓畫面先渲染
+        setTimeout(() => {
+            t.classList.add('show');
+            dismissTimer = setTimeout(dismiss, 5000);
+        }, 400);
+    })();
     // 視窗 resize 時自動重新 fit（除非使用者已自行調整過縮放）
     let userAdjusted = false;
     ['z-in','z-out','z-100','z-slider'].forEach(id => {
