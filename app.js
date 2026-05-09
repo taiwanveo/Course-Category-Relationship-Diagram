@@ -989,6 +989,10 @@ function exitFullscreenMode() {
     // 退出全螢幕：自動關閉並清除篩選面板（避免回到一般模式時有 dim 的卡片）
     const fp = document.getElementById('editor-filter-panel');
     if (fp) fp.classList.add('collapsed');
+    // 重置篩選按鈕 inline style（避免之前 syncBtn 設定的 opacity:0 / pointer-events:none 殘留
+    // 導致下次進入全螢幕時按鈕雖被 CSS display:flex 但仍透明不可點）
+    const fbtn = document.getElementById('editor-filter-toggle');
+    if (fbtn) { fbtn.style.opacity = ''; fbtn.style.pointerEvents = ''; }
     if (typeof editorActiveFilters !== 'undefined') {
         getAllCategoryKeys().forEach(cat => editorActiveFilters[cat] = []);
         if (typeof editorApplyFilter === 'function') editorApplyFilter();
@@ -7268,6 +7272,12 @@ function buildViewerScript() {
         document.body.classList.remove('fs-drawing');
         document.body.classList.remove('has-doodle');
         clearFsDoodle();
+        // 退出全螢幕：自動關閉篩選面板並重置篩選按鈕 inline style
+        // （避免 syncBtn 設定的 opacity:0 殘留，導致回到一般模式或下次進入全螢幕時按鈕看不見）
+        const fp = document.getElementById('filter-panel');
+        if (fp) fp.classList.add('collapsed');
+        const fbtn = document.getElementById('filter-toggle-btn');
+        if (fbtn) { fbtn.style.opacity = ''; fbtn.style.pointerEvents = ''; }
         try { if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(()=>{}); } catch(e){}
         setTimeout(()=>{ try{ fitZoomViewer(); }catch(e){} updateMmViewport(); }, 80);
     }
