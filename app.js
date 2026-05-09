@@ -6837,10 +6837,15 @@ async function exportHTML() {
         }
         const dotDataURI = await fetchAsDataURI('assets/dot.png');
         const dotsDataURI = await fetchAsDataURI('assets/dots.png');
+        const faviconDataURI = await fetchAsDataURI('assets/classification.png?v=' + Date.now());
         const viewerScript = buildViewerScript();
         const currentViewMode = AppStorage.Settings.getViewMode();
+        const faviconLinks = faviconDataURI
+            ? `<link rel="icon" type="image/png" href="${faviconDataURI}"><link rel="shortcut icon" type="image/png" href="${faviconDataURI}"><link rel="apple-touch-icon" href="${faviconDataURI}">`
+            : '';
         const html = `<!DOCTYPE html><html lang="zh-TW" data-theme="${AppStorage.Settings.getTheme()}" data-palette="${AppStorage.Settings.getPalette()}" data-view-mode="${currentViewMode}">
 <head><meta charset="UTF-8"><title>${escapeHtml(projectData.name || '分類圖')}</title>
+${faviconLinks}
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>${css}
 .viewer-toolbar { position: fixed; top: 12px; left: 12px; right: 12px; display: flex; justify-content: space-between; align-items: center; padding: 8px 16px; background: var(--bg-card); border-radius: 24px; box-shadow: var(--shadow-md); z-index: 100; }
@@ -7100,9 +7105,9 @@ async function exportHTML() {
 .search-tips { margin-top: 10px; font-size: 11px; color: var(--text-muted); line-height: 1.5; }
 .search-tips b { color: var(--text-secondary); font-weight: 700; }
 
-/* 全螢幕模式：搜尋按鈕同樣下移 */
-body.fullscreen-mode .search-toggle-btn { top: 64px; right: 12px; z-index: 9990; }
-body.fullscreen-mode .search-panel { top: 12px; right: 12px; z-index: 9991; }
+/* 全螢幕模式：搜尋按鈕放在篩選按鈕下方 */
+body.fullscreen-mode .search-toggle-btn { top: 116px; right: 12px; z-index: 9990; }
+body.fullscreen-mode .search-panel { top: 64px; right: 12px; z-index: 9991; }
 
 /* 篩選結果視覺提示 */
 .component.filter-dimmed { opacity: 0.18; filter: saturate(0.4); transition: opacity 0.25s, filter 0.25s; }
@@ -7120,9 +7125,9 @@ body.fullscreen-mode .search-panel { top: 12px; right: 12px; z-index: 9991; }
 
 /* ===== 全螢幕模式 ===== */
 body.fullscreen-mode .viewer-toolbar { display: none !important; }
-/* 全螢幕模式仍顯示篩選 UI（篩選功能在展示時很實用） */
-body.fullscreen-mode .filter-toggle-btn { top: 12px; right: 12px; z-index: 9990; }
-body.fullscreen-mode .filter-panel { top: 12px; right: 12px; z-index: 9991; }
+/* 全螢幕模式仍顯示篩選 UI；按鈕往下移避開「退出全螢幕」按鈕 */
+body.fullscreen-mode .filter-toggle-btn { top: 64px; right: 12px; z-index: 9990; }
+body.fullscreen-mode .filter-panel { top: 64px; right: 12px; z-index: 9991; }
 body.fullscreen-mode .canvas-area { padding: 0 !important; }
 .exit-fullscreen-btn {
     display: none;

@@ -35,6 +35,7 @@ node_modules/
 # 本工具產出的測試檔（避免汙染 repo）
 diagram-export-*.html
 課程類別關係圖.html
+課程類別關係圖*.html
 *.ccrd
 course-category-env-*.json
 
