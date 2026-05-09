@@ -645,9 +645,13 @@ body {
 }
 /* 平移畫布（按住 Space 或滑鼠中鍵拖曳） */
 .canvas-wrapper-outer.panning-ready,
-.canvas-wrapper-outer.panning-ready * { cursor: grab !important; }
+.canvas-wrapper-outer.panning-ready *,
+.viewer-canvas-wrapper.panning-ready,
+.viewer-canvas-wrapper.panning-ready * { cursor: grab !important; }
 .canvas-wrapper-outer.panning-active,
-.canvas-wrapper-outer.panning-active * { cursor: grabbing !important; user-select: none !important; }
+.canvas-wrapper-outer.panning-active *,
+.viewer-canvas-wrapper.panning-active,
+.viewer-canvas-wrapper.panning-active * { cursor: grabbing !important; user-select: none !important; }
 .canvas-wrapper {
     padding: 40px;
     display: flex;

@@ -7698,6 +7698,7 @@ function buildViewerScript() {
     function openClassPopup(comp){
         const navStack = [comp.id];
         const overlay = document.createElement('div');
+        overlay.className = 'vw-class-popup-overlay';
         overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:200;';
         overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
         const m = document.createElement('div');
@@ -8199,8 +8200,75 @@ function buildViewerScript() {
         currentViewMode = (currentViewMode === 'skeleton') ? 'full' : 'skeleton';
         applyViewMode();
     });
+    // ========== 畫布平移：按住 Space + 滑鼠拖曳，或滑鼠中鍵 ==========
+    function setupViewerCanvasPanning(){
+        const outer = document.getElementById('vw-outer');
+        if (!outer) return;
+        let isSpaceDown = false;
+        let isPanning = false;
+        let startX = 0, startY = 0, sLeft = 0, sTop = 0;
+        function isTypingTargetVw(t){
+            if (!t) return false;
+            const tag = (t.tagName || '').toUpperCase();
+            if (tag === 'INPUT' || tag === 'TEXTAREA') return true;
+            if (t.isContentEditable) return true;
+            return false;
+        }
+        function isAnyOverlayOpen(){
+            return !!(document.querySelector('.filter-results-overlay')
+                   || document.querySelector('.vw-class-popup-overlay'));
+        }
+        document.addEventListener('keydown', (e) => {
+            if (e.code !== 'Space') return;
+            if (isTypingTargetVw(e.target)) return;
+            if (isAnyOverlayOpen()) return;
+            e.preventDefault();
+            if (!isSpaceDown) {
+                isSpaceDown = true;
+                outer.classList.add('panning-ready');
+            }
+        });
+        document.addEventListener('keyup', (e) => {
+            if (e.code !== 'Space') return;
+            isSpaceDown = false;
+            outer.classList.remove('panning-ready');
+            if (!isPanning) outer.classList.remove('panning-active');
+        });
+        window.addEventListener('blur', () => {
+            isSpaceDown = false;
+            outer.classList.remove('panning-ready', 'panning-active');
+        });
+        outer.addEventListener('mousedown', (e) => {
+            const middle = e.button === 1;
+            const spaceLeft = e.button === 0 && isSpaceDown;
+            if (!middle && !spaceLeft) return;
+            e.preventDefault();
+            e.stopPropagation();
+            isPanning = true;
+            outer.classList.add('panning-active');
+            startX = e.clientX; startY = e.clientY;
+            sLeft = outer.scrollLeft; sTop = outer.scrollTop;
+            const onMove = (ev) => {
+                outer.scrollLeft = sLeft - (ev.clientX - startX);
+                outer.scrollTop = sTop - (ev.clientY - startY);
+            };
+            const onUp = () => {
+                isPanning = false;
+                outer.classList.remove('panning-active');
+                if (!isSpaceDown) outer.classList.remove('panning-ready');
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+            };
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+        });
+        // 中鍵點擊在某些瀏覽器會觸發 contextmenu / auxclick，這裡屏蔽
+        outer.addEventListener('auxclick', (e) => { if (e.button === 1) e.preventDefault(); });
+    }
+
     applyBoard(); renderAll();
     setupFilterUI();
+    setupViewerCanvasPanning();
     applyViewMode();
     // 預設以「寬度優先」對齊瀏覽器右側
     setTimeout(fitZoomViewer, 50);
