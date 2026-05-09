@@ -128,6 +128,65 @@ function generateCustomCategoryKey() {
     return 'custom_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
 }
 
+// 標籤名稱對齊：把 class.tags[cat] 中的「短名/別名」轉為 tagLibrary 上的正規名稱
+// 主要解決 AI 分類時回傳「善」但 tagLibrary 是「善（會用）」的不對齊問題。
+// 規則優先順序：
+//   1. 完全相符 → 不動
+//   2. library 名稱以 raw + 半／全形左括號開頭（raw="善"，lib="善（會用）"）→ 採用 lib 全名
+//   3. raw 以 library 名稱 + 左括號開頭（raw="善（會用）"，lib="善"）→ 採用 lib 短名
+//   4. 兩者去掉左括號後內容相同 → 採用 lib 名稱
+function _stripParenSuffix(s) {
+    return String(s == null ? '' : s).replace(/[（(].*$/, '').trim();
+}
+function findCanonicalTagName(rawName, libraryNames) {
+    if (!rawName || !libraryNames || libraryNames.length === 0) return null;
+    const raw = String(rawName);
+    if (libraryNames.indexOf(raw) >= 0) return raw;
+    const startsHit = libraryNames.find(n => n.startsWith(raw + '（') || n.startsWith(raw + '('));
+    if (startsHit) return startsHit;
+    const reverseHit = libraryNames.find(n => raw.startsWith(n + '（') || raw.startsWith(n + '('));
+    if (reverseHit) return reverseHit;
+    const rawCore = _stripParenSuffix(raw);
+    if (rawCore) {
+        const m = libraryNames.find(n => _stripParenSuffix(n) === rawCore);
+        if (m) return m;
+    }
+    return null;
+}
+function normalizeClassTagsAgainstLibrary(pd) {
+    if (!pd || !pd.tagLibrary || !Array.isArray(pd.components)) return 0;
+    const libNames = {};
+    Object.keys(pd.tagLibrary).forEach(cat => {
+        libNames[cat] = (pd.tagLibrary[cat] || []).map(t => t.name).filter(Boolean);
+    });
+    let changed = 0;
+    pd.components.forEach(c => {
+        if (c.type !== 'course-category' || !Array.isArray(c.props.classes)) return;
+        c.props.classes.forEach(cl => {
+            if (!cl.tags || typeof cl.tags !== 'object') return;
+            Object.keys(cl.tags).forEach(cat => {
+                const arr = cl.tags[cat];
+                if (!Array.isArray(arr) || arr.length === 0) return;
+                const names = libNames[cat];
+                if (!names || names.length === 0) return;
+                const seen = new Set();
+                const out = [];
+                arr.forEach(raw => {
+                    const canonical = findCanonicalTagName(raw, names);
+                    const final = canonical || raw;
+                    if (canonical && canonical !== raw) changed++;
+                    if (final && !seen.has(final)) { seen.add(final); out.push(final); }
+                });
+                cl.tags[cat] = out;
+            });
+        });
+    });
+    if (changed > 0) {
+        try { console.info('[normalizeClassTagsAgainstLibrary] 已修正 ' + changed + ' 個班名標籤名稱以對齊標籤庫'); } catch (e) {}
+    }
+    return changed;
+}
+
 const BOARD_PRESETS = {
     '1920x1080': { w: 1920, h: 1080 },
     '2560x1440': { w: 2560, h: 1440 },
@@ -425,6 +484,14 @@ function ensureDiagramIntegrity() {
             });
         }
     });
+
+    // 班名 tag 名稱與 tagLibrary 對齊：避免 AI / 匯入時把短名（例「善」）寫進去
+    // 但 library 是全名（例「善（會用）」），導致篩選器永遠抓不到。
+    const _normalizedCount = normalizeClassTagsAgainstLibrary(projectData);
+    if (_normalizedCount > 0 && typeof scheduleSaveDraft === 'function') {
+        // 有實質修正 → 排程持久化，讓修正結果寫回 IndexedDB
+        scheduleSaveDraft();
+    }
 
     if (!Array.isArray(projectData.components)) projectData.components = [];
     if (!Array.isArray(projectData.connectors)) projectData.connectors = [];
@@ -5405,6 +5472,9 @@ function applyClassificationResult(parsed, subject, opts) {
     });
     // AI 產生後自動套用智慧整理（會自動擴張白板，確保不溢出）
     smartLayout({ silent: true, skipSnapshot: true });
+    // AI 寫入的班名標籤可能是「短名」（例：善），這裡把它對齊到 tagLibrary 的正規名稱（例：善（會用）），
+    // 否則篩選器永遠抓不到對應標籤。
+    if (typeof normalizeClassTagsAgainstLibrary === 'function') normalizeClassTagsAgainstLibrary(projectData);
     updateTitleBar();
 }
 
