@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": 2,
-  "updatedAt": "2026-05-11T02:50:07.842Z",
+  "revision": 3,
+  "updatedAt": "2026-05-11T02:59:22.239Z",
   "categories": [
     {
       "key": "audience",
@@ -107,22 +107,22 @@
     "attribute": [
       {
         "id": "t14",
-        "name": "善（會用）",
+        "name": "問（會問問題、下好提示詞、拆解任務）",
         "color": "#06b6d4"
       },
       {
         "id": "t15",
-        "name": "用（流程化）",
+        "name": "用（會善用 AI 工具提升效率）",
         "color": "#3b82f6"
       },
       {
         "id": "t16",
-        "name": "管（治理）",
+        "name": "管（會管理 AI 的風險與品質）",
         "color": "#8b5cf6"
       },
       {
         "id": "t17",
-        "name": "造（創新）",
+        "name": "造（會創造 AI 應用或解決方案）",
         "color": "#ec4899"
       }
     ],
