@@ -121,6 +121,11 @@ const GITHUB_REPO_INFO = (function () {
 //   - 啟動時 fetch；失敗 → IndexedDB cache；再失敗 → 內建 DEFAULT
 //   - owner（已設定 GitHub PAT）才能透過 GitHub Contents API commit
 // ============================================================
+// 標籤「名稱」比對用：trim + Unicode NFC，避免「一般課程」與「一般課程 」被當成兩筆
+function tagNameKey(s) {
+    try { return String(s == null ? '' : s).normalize('NFC').trim(); } catch (e) { return String(s || '').trim(); }
+}
+
 function buildDefaultTagLibraryDoc() {
     const cats = [];
     const lib = {};
@@ -154,13 +159,49 @@ function cloneTagLibraryDeep(tagLib) {
         }
         out[cat] = arr.map((t, idx) => {
             const id = (t && t.id != null && String(t.id).trim()) ? String(t.id).trim() : ('t' + (idx + 1));
-            const name = (t && t.name != null) ? String(t.name) : '';
+            const name = tagNameKey((t && t.name != null) ? t.name : '');
             let color = (t && t.color != null) ? String(t.color).trim() : '';
             if (!/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(color)) color = '#94a3b8';
             return { id, name, color };
         });
     });
     return out;
+}
+
+// 同一類別內：名稱經 tagNameKey 相同者合併為一筆（保留較佳顏色、較長顯示名稱）
+function dedupeTagLibraryByName(lib) {
+    const PL = '#94a3b8';
+    const hexOk = (c) => /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/i.test(String(c || '').trim());
+    if (!lib || typeof lib !== 'object') return;
+    Object.keys(lib).forEach(cat => {
+        const arr = lib[cat];
+        if (!Array.isArray(arr)) {
+            lib[cat] = [];
+            return;
+        }
+        const byKey = new Map();
+        const order = [];
+        arr.forEach(t => {
+            if (!t) return;
+            const nk = tagNameKey(t.name);
+            if (!nk) return;
+            let color = String(t.color || '').trim();
+            if (!hexOk(color)) color = PL;
+            const prev = byKey.get(nk);
+            if (!prev) {
+                byKey.set(nk, { id: t.id, name: nk, color });
+                order.push(nk);
+                return;
+            }
+            const pcol = String(prev.color || PL).toLowerCase();
+            const ncol = color.toLowerCase();
+            if (pcol === PL && ncol !== PL) prev.color = color;
+            else if (ncol !== PL && pcol === PL) prev.color = color;
+            const rawDisp = String(t.name || '').normalize('NFC').trim();
+            if (rawDisp.length > String(prev.name).length) prev.name = rawDisp;
+        });
+        lib[cat] = order.map(nk => byKey.get(nk));
+    });
 }
 
 // 容錯：把任何輸入正規化成 schemaVersion 2 的對稱結構
@@ -196,6 +237,7 @@ function normalizeTagLibraryDoc(raw) {
         if (!Array.isArray(out.tagLibrary[c.key])) out.tagLibrary[c.key] = [];
     });
     out.categories.sort((a, b) => (a.order || 0) - (b.order || 0));
+    dedupeTagLibraryByName(out.tagLibrary);
     return out;
 }
 
@@ -335,8 +377,10 @@ function harvestLegacyTagsFromSources(sources) {
             if (!doc.tagLibrary[cat]) return;
             (lib[cat] || []).forEach(t => {
                 if (!t || !t.name) return;
-                if (doc.tagLibrary[cat].find(x => x.name === t.name)) return;
-                doc.tagLibrary[cat].push({ id: nextTagId(), name: t.name, color: t.color || '#94a3b8' });
+                const nk = tagNameKey(t.name);
+                if (!nk) return;
+                if (doc.tagLibrary[cat].find(x => tagNameKey(x.name) === nk)) return;
+                doc.tagLibrary[cat].push({ id: nextTagId(), name: nk, color: t.color || '#94a3b8' });
                 stats.recoveredTags++;
             });
         });
@@ -350,7 +394,7 @@ function harvestLegacyTagsFromSources(sources) {
         Object.keys(lib).forEach(cat => {
             if (!orphanColorMap[cat]) orphanColorMap[cat] = {};
             (lib[cat] || []).forEach(t => {
-                if (t && t.name && t.color) orphanColorMap[cat][t.name] = t.color;
+                if (t && t.name && t.color) orphanColorMap[cat][tagNameKey(t.name)] = t.color;
             });
         });
     });
@@ -364,9 +408,11 @@ function harvestLegacyTagsFromSources(sources) {
                     if (!doc.tagLibrary[cat]) return;
                     (cl.tags[cat] || []).forEach(name => {
                         if (!name) return;
-                        if (doc.tagLibrary[cat].find(x => x.name === name)) return;
-                        const color = (orphanColorMap[cat] && orphanColorMap[cat][name]) || '#94a3b8';
-                        doc.tagLibrary[cat].push({ id: nextTagId(), name, color });
+                        const nk = tagNameKey(name);
+                        if (!nk) return;
+                        if (doc.tagLibrary[cat].find(x => tagNameKey(x.name) === nk)) return;
+                        const color = (orphanColorMap[cat] && orphanColorMap[cat][nk]) || '#94a3b8';
+                        doc.tagLibrary[cat].push({ id: nextTagId(), name: nk, color });
                         stats.recoveredFromOrphanNames++;
                     });
                 });
@@ -2380,7 +2426,8 @@ function findTagById(cat, id) {
 function findTagByName(cat, name) {
     const lib = getTagLibrary()[cat];
     if (!lib) return null;
-    return lib.find(t => t.name === name) || null;
+    const nk = tagNameKey(name);
+    return lib.find(t => tagNameKey(t.name) === nk) || null;
 }
 
 // ============================================================
@@ -4297,7 +4344,7 @@ function renderTagManagerStatus() {
             <span class="status-rev">標籤庫 ${escapeHtml(revText)}${needSave ? '（有未儲存的變更）' : ''}</span>
             <span style="flex:1;"></span>
             <button id="tag-doc-save" class="btn btn-small btn-primary" ${needSave ? '' : 'disabled'} title="把目前 tagLibraryDoc commit 到 GitHub repo">儲存到伺服器</button>
-            <button id="tag-doc-reload" class="btn btn-small" title="從伺服器重新載入最新版（會放棄未儲存的變更）">重新載入</button>
+            <button id="tag-doc-reload" class="btn btn-small" title="從伺服器抓取 data/tags.json，覆寫本機標籤庫（記憶體 + IndexedDB 快取）；不會清空分類圖。會放棄未儲存的編輯／本機救援合併（addon）。">重新載入</button>
             <button id="tag-doc-history" class="btn btn-small" title="從 GitHub 歷史 commit 中還原任一版本">📜 版本歷史</button>
             <button id="tag-doc-reset" class="btn btn-small" title="把標籤庫重設為原廠預設（不會自動儲存）">↺ 原廠預設</button>
             <button id="tag-doc-download" class="btn btn-small" title="下載目前 tagLibraryDoc 為 tags.json（供初次部署或備份）">⬇ 下載 tags.json</button>
