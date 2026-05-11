@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": 4,
-  "updatedAt": "2026-05-11T03:01:09.658Z",
+  "revision": 5,
+  "updatedAt": "2026-05-11T03:02:37.789Z",
   "categories": [
     {
       "key": "audience",
@@ -157,14 +157,14 @@
       {
         "id": "t29",
         "name": "證照",
-        "color": "#dc2626"
+        "color": "#c11a1a"
       }
     ],
     "custom_mp0lq0evvx9": [
       {
         "id": "t30",
         "name": "課程主軸",
-        "color": "#ffd505"
+        "color": "#ff0505"
       }
     ]
   }
