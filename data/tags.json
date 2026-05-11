@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": 3,
-  "updatedAt": "2026-05-11T02:59:22.239Z",
+  "revision": 4,
+  "updatedAt": "2026-05-11T03:01:09.658Z",
   "categories": [
     {
       "key": "audience",
@@ -39,52 +39,22 @@
       {
         "id": "t1",
         "name": "全員",
-        "color": "#64748b"
+        "color": "#d3e0f3"
       },
       {
         "id": "t2",
         "name": "主管",
-        "color": "#8b5cf6"
+        "color": "#ff941a"
       },
       {
         "id": "t3",
         "name": "非IT",
-        "color": "#0ea5e9"
-      },
-      {
-        "id": "t4",
-        "name": "行政",
-        "color": "#06b6d4"
-      },
-      {
-        "id": "t5",
-        "name": "人資",
-        "color": "#14b8a6"
-      },
-      {
-        "id": "t6",
-        "name": "業務",
-        "color": "#10b981"
+        "color": "#1be43c"
       },
       {
         "id": "t7",
         "name": "IT",
-        "color": "#3b82f6"
-      },
-      {
-        "id": "t8",
-        "name": "開發",
-        "color": "#6366f1"
-      },
-      {
-        "id": "t9",
-        "name": "維運",
-        "color": "#a855f7"
-      },
-      {
-        "id": "t10",
-        "name": "架構",
-        "color": "#d946ef"
+        "color": "#1f11df"
       }
     ],
     "level": [
