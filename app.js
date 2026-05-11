@@ -255,6 +255,21 @@ function setPendingTagAddon(v) {
     } catch (e) { /* ignore */ }
 }
 
+// 從 raw.githubusercontent.com 讀取 branch tip 上的 data/tags.json。
+// 備援用途：相對路徑 ./data/tags.json 失敗（本機開檔、base URL 不含 repo 子路徑、離線編輯包等）時，仍自動取得 GitHub 上最新標籤庫，無需手動按「版本歷史 → 載入此版本」。
+async function fetchTagLibraryJsonFromRepoTip() {
+    const r = GITHUB_REPO_INFO;
+    if (!r || !r.owner || !r.repo || !r.branch) return null;
+    const url = `https://raw.githubusercontent.com/${r.owner}/${r.repo}/${encodeURIComponent(r.branch)}/${TAGS_JSON_PATH}?t=${Date.now()}`;
+    try {
+        const res = await fetch(url, { cache: 'no-store', mode: 'cors' });
+        if (!res || !res.ok) return null;
+        return await res.json();
+    } catch (e) {
+        return null;
+    }
+}
+
 async function loadTagLibraryDoc(opts) {
     opts = opts || {};
     const forceFetch = !!opts.forceFetch;     // 「重新載入」按鈕用：忽略 pending 強制拉伺服器
@@ -302,6 +317,29 @@ async function loadTagLibraryDoc(opts) {
         }
         lastErr = new Error('HTTP ' + (res && res.status));
     } catch (e) { lastErr = e; }
+
+    // ①b 同網域 ./data/tags.json 無法使用時，改從 GitHub raw 自動載入 branch 上最新檔（新電腦／本機開檔必備）
+    try {
+        const raw = await fetchTagLibraryJsonFromRepoTip();
+        if (raw && typeof raw === 'object') {
+            let doc = normalizeTagLibraryDoc(raw);
+            if (!forceFetch) {
+                try {
+                    const prev = await AppStorage.kvGet('tagLibraryCache');
+                    if (prev && typeof prev.revision === 'number' && typeof doc.revision === 'number' && prev.revision > doc.revision) {
+                        console.warn('[tags] 偵測到（GitHub raw）tags.json revision（' + doc.revision + '）低於本機快取（' + prev.revision + '），暫用本機較新版本');
+                        doc = normalizeTagLibraryDoc(prev);
+                    }
+                } catch (e) { /* ignore */ }
+            }
+            window.tagLibraryDoc = doc;
+            try { await AppStorage.kvSet('tagLibraryCache', doc); } catch (e) { /* ignore */ }
+            if (forceFetch) setPendingTagAddon(false);
+            console.info('[tags] 已自 GitHub raw 載入標籤庫（備援路徑）');
+            return { source: 'github-raw', doc };
+        }
+    } catch (e) { lastErr = e; }
+
     // ② 退而求其次：IndexedDB cache
     try {
         const cached = await AppStorage.kvGet('tagLibraryCache');
@@ -741,6 +779,8 @@ async function boot() {
     const tagLoadResult = await loadTagLibraryDoc();
     if (tagLoadResult.source === 'cache') {
         toast(`目前使用本地標籤快取（revision ${tagLoadResult.doc.revision}）— 線上載入失敗`, 'warning');
+    } else if (tagLoadResult.source === 'github-raw') {
+        toast(`已自動從 GitHub 載入最新標籤庫（revision ${tagLoadResult.doc.revision}）— 同站 tags.json 不可用時的備援`, 'info');
     } else if (tagLoadResult.source === 'default') {
         toast('找不到線上標籤庫，已使用內建預設', 'info');
     } else if (tagLoadResult.source === 'cache-with-addon') {
