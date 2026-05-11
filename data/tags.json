@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": 14,
-  "updatedAt": "2026-05-11T05:25:59.339Z",
+  "revision": 15,
+  "updatedAt": "2026-05-11T05:26:58.647Z",
   "categories": [
     {
       "key": "audience",
@@ -158,6 +158,11 @@
         "color": "#704d93"
       },
       {
+        "id": "t41",
+        "name": "AI 趨勢與策略",
+        "color": "#20ce09"
+      },
+      {
         "id": "t35",
         "name": "AI 維運與 LLMOps",
         "color": "#a47cee"
@@ -185,12 +190,7 @@
       {
         "id": "t40",
         "name": "AI 生產力工具",
-        "color": "#ff0505"
-      },
-      {
-        "id": "t41",
-        "name": "AI 趨勢與策略",
-        "color": "#20ce09"
+        "color": "#f0c219"
       }
     ],
     "format": [
