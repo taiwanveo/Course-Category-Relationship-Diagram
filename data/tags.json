@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": 12,
-  "updatedAt": "2026-05-11T03:53:39.145Z",
+  "revision": 13,
+  "updatedAt": "2026-05-11T05:05:59.871Z",
   "categories": [
     {
       "key": "audience",
@@ -54,7 +54,7 @@
       {
         "id": "t7",
         "name": "IT",
-        "color": "#1f11df"
+        "color": "#3372f0"
       }
     ],
     "level": [
@@ -66,7 +66,7 @@
       {
         "id": "t12",
         "name": "進階 ★★",
-        "color": "#0a9bf5"
+        "color": "#e2db08"
       },
       {
         "id": "t13",
@@ -83,17 +83,17 @@
       {
         "id": "t14",
         "name": "問（會問問題、下好提示詞、拆解任務）",
-        "color": "#13cbec"
+        "color": "#32ddfb"
       },
       {
         "id": "t15",
         "name": "用（會善用 AI 工具提升效率）",
-        "color": "#3b82f6"
+        "color": "#2c7af6"
       },
       {
         "id": "t16",
         "name": "管（會管理 AI 的風險與品質）",
-        "color": "#8b5cf6"
+        "color": "#7941fb"
       },
       {
         "id": "t17",
@@ -108,29 +108,59 @@
         "color": "#00ff6e"
       },
       {
-        "id": "t19",
-        "name": "生成式AI",
-        "color": "#6366f1"
+        "id": "t41",
+        "name": "AI 趨勢與策略",
+        "color": "#20ce09"
       },
       {
-        "id": "t20",
-        "name": "提示工程",
-        "color": "#ae97e2"
+        "id": "t38",
+        "name": "產業 AI 應用",
+        "color": "#086d0c"
+      },
+      {
+        "id": "t39",
+        "name": "AI 教學與學習應用",
+        "color": "#7bd581"
       },
       {
         "id": "t21",
         "name": "AI 辦公應用",
-        "color": "#f39120"
+        "color": "#ffda1f"
       },
       {
-        "id": "t22",
-        "name": "多模態 AI",
-        "color": "#06b6d4"
+        "id": "t25",
+        "name": "流程自動化",
+        "color": "#f3a92b"
+      },
+      {
+        "id": "t40",
+        "name": "AI 生產力工具",
+        "color": "#ff4d00"
+      },
+      {
+        "id": "t32",
+        "name": "AI 應用開發",
+        "color": "#c44a08"
+      },
+      {
+        "id": "t19",
+        "name": "生成式AI",
+        "color": "#09bfec"
+      },
+      {
+        "id": "t20",
+        "name": "提示工程",
+        "color": "#220ff5"
       },
       {
         "id": "t23",
         "name": "RAG 與知識庫",
-        "color": "#0ea5e9"
+        "color": "#371b83"
+      },
+      {
+        "id": "t22",
+        "name": "多模態 AI",
+        "color": "#0aa3ae"
       },
       {
         "id": "t24",
@@ -138,19 +168,9 @@
         "color": "#0e7490"
       },
       {
-        "id": "t25",
-        "name": "流程自動化",
-        "color": "#b37305"
-      },
-      {
-        "id": "t32",
-        "name": "AI 應用開發",
-        "color": "#ff0505"
-      },
-      {
         "id": "t33",
         "name": "模型訓練與微調",
-        "color": "#280bbc"
+        "color": "#8472df"
       },
       {
         "id": "t34",
@@ -160,37 +180,17 @@
       {
         "id": "t35",
         "name": "AI 維運與 LLMOps",
-        "color": "#a47cee"
+        "color": "#e6cac1"
       },
       {
         "id": "t36",
         "name": "AI 安全",
-        "color": "#ce0909"
+        "color": "#f41010"
       },
       {
         "id": "t37",
         "name": "AI 治理與法遵",
-        "color": "#765151"
-      },
-      {
-        "id": "t38",
-        "name": "產業 AI 應用",
-        "color": "#ff0505"
-      },
-      {
-        "id": "t39",
-        "name": "AI 教學與學習應用",
-        "color": "#ff0505"
-      },
-      {
-        "id": "t40",
-        "name": "AI 生產力工具",
-        "color": "#ff0505"
-      },
-      {
-        "id": "t41",
-        "name": "AI 趨勢與策略",
-        "color": "#20ce09"
+        "color": "#683737"
       }
     ],
     "format": [
