@@ -4235,25 +4235,34 @@ function renderTagManagerStatus() {
             <span style="flex:1;"></span>
             <button id="tag-doc-save" class="btn btn-small btn-primary" ${needSave ? '' : 'disabled'} title="把目前 tagLibraryDoc commit 到 GitHub repo">儲存到伺服器</button>
             <button id="tag-doc-reload" class="btn btn-small" title="從伺服器重新載入最新版（會放棄未儲存的變更）">重新載入</button>
+            <button id="tag-doc-history" class="btn btn-small" title="從 GitHub 歷史 commit 中還原任一版本">📜 版本歷史</button>
             <button id="tag-doc-reset" class="btn btn-small" title="把標籤庫重設為原廠預設（不會自動儲存）">↺ 原廠預設</button>
             <button id="tag-doc-download" class="btn btn-small" title="下載目前 tagLibraryDoc 為 tags.json（供初次部署或備份）">⬇ 下載 tags.json</button>
+            <button id="tag-doc-upload" class="btn btn-small" title="從本機 JSON 檔載入標籤庫（例如剛下載的備份），載入後標記為待儲存">⬆ 從檔案載入</button>
         `;
         const sb = document.getElementById('tag-doc-save');
         if (sb) sb.addEventListener('click', () => handleTagDocSave());
         const rb = document.getElementById('tag-doc-reload');
         if (rb) rb.addEventListener('click', () => handleTagDocReload());
+        const hb = document.getElementById('tag-doc-history');
+        if (hb) hb.addEventListener('click', () => openTagHistory());
         const rs = document.getElementById('tag-doc-reset');
         if (rs) rs.addEventListener('click', () => handleTagDocResetToDefault());
         const db = document.getElementById('tag-doc-download');
         if (db) db.addEventListener('click', () => handleTagDocDownload());
+        const ub = document.getElementById('tag-doc-upload');
+        if (ub) ub.addEventListener('click', () => handleTagDocUpload());
     } else {
         bar.innerHTML = `
             ${pendingBanner}
             <span class="status-badge readonly">🔒 唯讀</span>
             <span class="status-rev">標籤庫 ${escapeHtml(revText)} — 由維護者集中管理${pending ? '（含本機暫存）' : ''}</span>
             <span style="flex:1;"></span>
+            <button id="tag-doc-history" class="btn btn-small" title="從 GitHub 歷史 commit 中瀏覽／載入任一版本（本機暫存，不會寫回伺服器）">📜 版本歷史</button>
             <button id="tag-doc-pat-setup" class="btn btn-small" title="設定 GitHub PAT 以進入維護者模式">維護者設定…</button>
         `;
+        const hb = document.getElementById('tag-doc-history');
+        if (hb) hb.addEventListener('click', () => openTagHistory());
         const ps = document.getElementById('tag-doc-pat-setup');
         if (ps) ps.addEventListener('click', () => openOwnerPATSetup());
     }
@@ -4382,6 +4391,26 @@ function setupTagManagerModal() {
         _markTagDocDirty();
         renderTagManagerList();
     });
+    // 版本歷史 modal 的關閉按鈕（標籤管理 modal 內按「📜 版本歷史」會打開它）
+    const histClose = document.getElementById('tag-history-close');
+    if (histClose) {
+        histClose.addEventListener('click', () => {
+            document.getElementById('tag-history-overlay').style.display = 'none';
+        });
+    }
+    const histRefresh = document.getElementById('tag-history-refresh');
+    if (histRefresh) {
+        histRefresh.addEventListener('click', () => openTagHistory());
+    }
+    const histOverlay = document.getElementById('tag-history-overlay');
+    if (histOverlay) {
+        histOverlay.addEventListener('click', (e) => {
+            if (e.target.id === 'tag-history-overlay') {
+                document.getElementById('tag-history-overlay').style.display = 'none';
+            }
+        });
+    }
+
     document.getElementById('tag-manager-close').addEventListener('click', () => {
         if (tagLibraryDocDirty && isOwnerMode()) {
             if (!confirm('有尚未儲存到伺服器的標籤變更，確定關閉？\n變更會留在本機快取中，下次開啟此 Modal 仍會看到。')) return;
@@ -4405,6 +4434,29 @@ function renderTagManagerList() {
     const tags = lib[cat] || [];
     const readonly = _isViewerReadonly();
     list.innerHTML = '';
+
+    // 排序工具列（依名稱 / 反序 / 依顏色）：只有非唯讀且 tag 數 ≥ 2 才顯示
+    if (!readonly && tags.length >= 2) {
+        const toolbar = document.createElement('div');
+        toolbar.className = 'tag-manager-sort-toolbar';
+        toolbar.innerHTML = `
+            <span style="font-size:12px;color:var(--text-secondary);font-weight:600;">排序 (${tags.length} 個)：</span>
+            <button class="btn btn-small" data-sort="name-asc" title="A→Z / 0→9 / 注音順">🔤 依名稱遞增</button>
+            <button class="btn btn-small" data-sort="name-desc" title="Z→A">⇅ 依名稱遞減</button>
+            <button class="btn btn-small" data-sort="color" title="依色相值排序，方便整理深淺色">🌈 依顏色</button>
+            <button class="btn btn-small" data-sort="reverse" title="顛倒目前順序">↕ 反轉順序</button>
+            <span style="flex:1;"></span>
+            <span style="font-size:11px;color:var(--text-muted);">💡 可拖曳左側 ≡ 把手或按 ▲▼ 微調順序</span>
+        `;
+        toolbar.querySelectorAll('button[data-sort]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const mode = btn.getAttribute('data-sort');
+                sortTagsInCategory(cat, mode);
+            });
+        });
+        list.appendChild(toolbar);
+    }
+
     // 新增列的啟用狀態
     const addName = document.getElementById('tag-add-name');
     const addColor = document.getElementById('tag-add-color');
@@ -4416,16 +4468,34 @@ function renderTagManagerList() {
         addBtn.title = readonly ? '訪客模式：標籤庫為唯讀' : '';
     }
     if (tags.length === 0) {
-        list.innerHTML = '<div style="text-align:center;padding:30px 0;color:var(--text-muted);">尚無標籤' + (readonly ? '' : '，請新增') + '</div>';
+        const empty = document.createElement('div');
+        empty.style.cssText = 'text-align:center;padding:30px 0;color:var(--text-muted);';
+        empty.textContent = '尚無標籤' + (readonly ? '' : '，請新增');
+        list.appendChild(empty);
         return;
     }
+
     tags.forEach((tag, idx) => {
         const item = document.createElement('div');
         item.className = 'tag-manager-item';
-        item.innerHTML = `<input type="color" value="${tag.color}"${readonly ? ' disabled' : ''}><input type="text" value="${escapeAttr(tag.name)}"${readonly ? ' disabled' : ''}><button class="delete-btn" title="刪除"${readonly ? ' disabled' : ''}>✕</button>`;
+        if (!readonly) item.setAttribute('draggable', 'true');
+        item.dataset.idx = String(idx);
+        const upDisabled = (readonly || idx === 0) ? ' disabled' : '';
+        const downDisabled = (readonly || idx === tags.length - 1) ? ' disabled' : '';
+        item.innerHTML = `
+            <span class="drag-handle" title="${readonly ? '訪客模式不可重排' : '拖曳調整順序'}"${readonly ? ' style="cursor:not-allowed;opacity:0.4;"' : ''}>≡</span>
+            <input type="color" value="${tag.color}"${readonly ? ' disabled' : ''}>
+            <input type="text" value="${escapeAttr(tag.name)}"${readonly ? ' disabled' : ''}>
+            <button class="move-btn" data-dir="up" title="上移"${upDisabled}>▲</button>
+            <button class="move-btn" data-dir="down" title="下移"${downDisabled}>▼</button>
+            <button class="delete-btn" title="刪除"${readonly ? ' disabled' : ''}>✕</button>
+        `;
         const colorIn = item.querySelector('input[type="color"]');
         const nameIn = item.querySelector('input[type="text"]');
         const delBtn = item.querySelector('.delete-btn');
+        const upBtn = item.querySelector('button[data-dir="up"]');
+        const downBtn = item.querySelector('button[data-dir="down"]');
+
         if (!readonly) {
             colorIn.addEventListener('input', () => { tag.color = colorIn.value; _markTagDocDirty(); });
             nameIn.addEventListener('input', () => { tag.name = nameIn.value; _markTagDocDirty(); });
@@ -4436,9 +4506,93 @@ function renderTagManagerList() {
                 renderTagManagerList();
                 renderCanvas();
             });
+            upBtn.addEventListener('click', () => moveTagInCategory(cat, idx, idx - 1));
+            downBtn.addEventListener('click', () => moveTagInCategory(cat, idx, idx + 1));
+
+            // 拖曳排序
+            item.addEventListener('dragstart', (e) => {
+                item.classList.add('dragging');
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', String(idx));
+            });
+            item.addEventListener('dragend', () => {
+                item.classList.remove('dragging');
+                list.querySelectorAll('.tag-manager-item.drag-over').forEach(el => el.classList.remove('drag-over'));
+            });
+            item.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                item.classList.add('drag-over');
+            });
+            item.addEventListener('dragleave', () => item.classList.remove('drag-over'));
+            item.addEventListener('drop', (e) => {
+                e.preventDefault();
+                item.classList.remove('drag-over');
+                const fromIdx = parseInt(e.dataTransfer.getData('text/plain'), 10);
+                if (isNaN(fromIdx) || fromIdx === idx) return;
+                moveTagInCategory(cat, fromIdx, idx);
+            });
         }
         list.appendChild(item);
     });
+}
+
+// 在類別內把 tag 從 fromIdx 搬到 toIdx
+function moveTagInCategory(cat, fromIdx, toIdx) {
+    const lib = getTagLibrary();
+    const tags = lib[cat];
+    if (!Array.isArray(tags)) return;
+    if (fromIdx < 0 || fromIdx >= tags.length) return;
+    if (toIdx < 0 || toIdx >= tags.length) return;
+    if (fromIdx === toIdx) return;
+    const [moved] = tags.splice(fromIdx, 1);
+    tags.splice(toIdx, 0, moved);
+    _markTagDocDirty();
+    renderTagManagerList();
+    renderCanvas();
+}
+
+// 把類別內所有 tag 依指定模式排序：name-asc / name-desc / color / reverse
+function sortTagsInCategory(cat, mode) {
+    const lib = getTagLibrary();
+    const tags = lib[cat];
+    if (!Array.isArray(tags) || tags.length < 2) return;
+    const labelMap = {
+        'name-asc': '依名稱遞增',
+        'name-desc': '依名稱遞減',
+        'color': '依顏色',
+        'reverse': '反轉順序'
+    };
+    if (!confirm(`要把當前類別內 ${tags.length} 個標籤「${labelMap[mode] || mode}」重新排列？\n（此操作只改本機暫存，須按「儲存到伺服器」才會同步到 GitHub）`)) return;
+    const collator = new Intl.Collator('zh-Hant', { numeric: true, sensitivity: 'base' });
+    if (mode === 'name-asc') {
+        tags.sort((a, b) => collator.compare(a.name || '', b.name || ''));
+    } else if (mode === 'name-desc') {
+        tags.sort((a, b) => collator.compare(b.name || '', a.name || ''));
+    } else if (mode === 'color') {
+        // 用 HSL 的 hue 排序，相近色靠在一起
+        const hueOf = (hex) => {
+            const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim());
+            if (!m) return 999;
+            const r = parseInt(m[1].slice(0, 2), 16) / 255;
+            const g = parseInt(m[1].slice(2, 4), 16) / 255;
+            const b = parseInt(m[1].slice(4, 6), 16) / 255;
+            const max = Math.max(r, g, b), min = Math.min(r, g, b);
+            const d = max - min;
+            let h = 0;
+            if (d === 0) return -1; // 純灰色排最前
+            if (max === r) h = ((g - b) / d) % 6;
+            else if (max === g) h = (b - r) / d + 2;
+            else h = (r - g) / d + 4;
+            return h * 60 < 0 ? h * 60 + 360 : h * 60;
+        };
+        tags.sort((a, b) => hueOf(a.color) - hueOf(b.color));
+    } else if (mode === 'reverse') {
+        tags.reverse();
+    }
+    _markTagDocDirty();
+    renderTagManagerList();
+    renderCanvas();
 }
 
 // ============================================================
@@ -4498,8 +4652,175 @@ function handleTagDocDownload() {
     doc.schemaVersion = TAG_LIBRARY_DOC_SCHEMA_VERSION;
     doc.updatedAt = new Date().toISOString();
     const blob = new Blob([JSON.stringify(doc, null, 2) + '\n'], { type: 'application/json;charset=utf-8' });
-    downloadBlob(blob, 'tags.json');
-    toast('已下載 tags.json（請手動 commit 到 repo 的 data/tags.json）', 'success');
+    downloadBlob(blob, `tags-rev${doc.revision || 0}.json`);
+    toast('已下載 tags.json', 'success');
+}
+
+// 從本機 JSON 檔載入標籤庫（例：剛下載的備份檔）
+function handleTagDocUpload() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json,application/json';
+    input.addEventListener('change', async () => {
+        const file = input.files && input.files[0];
+        if (!file) return;
+        try {
+            const text = await file.text();
+            const raw = JSON.parse(text);
+            const normalized = normalizeTagLibraryDoc(raw);
+            const summary = `schemaVersion ${normalized.schemaVersion}, revision ${normalized.revision}, ${normalized.categories.length} 類, ${
+                Object.values(normalized.tagLibrary).reduce((sum, arr) => sum + (Array.isArray(arr) ? arr.length : 0), 0)
+            } 標籤`;
+            if (!confirm(`即將以下列檔案內容覆蓋目前標籤庫：\n\n  檔名：${file.name}\n  ${summary}\n\n此操作只改本機暫存；Owner 須按「儲存到伺服器」才會 commit 成新 revision。\n\n確定？`)) return;
+            window.tagLibraryDoc = normalized;
+            try { await AppStorage.kvSet('tagLibraryCache', normalized); } catch (e) { /* ignore */ }
+            setPendingTagAddon(true);
+            _markTagDocDirty();
+            activeTagManagerCat = (normalized.categories[0] && normalized.categories[0].key) || 'audience';
+            renderTagManagerStatus();
+            renderTagManagerTabs();
+            renderTagManagerCatEdit();
+            renderTagManagerList();
+            renderCanvas();
+            toast(`已載入 ${file.name}（標記為待儲存）`, 'success');
+        } catch (e) {
+            console.error(e);
+            toast('載入失敗：' + e.message, 'error');
+        }
+    });
+    input.click();
+}
+
+// ============================================================
+// 標籤庫版本歷史（從 GitHub commits 拉取，可選任一版本還原至記憶體）
+// ----
+// 任何人（含訪客）都能瀏覽與「載入到本機」；只有 owner 能進一步 commit 成新 revision。
+// 不依賴 PAT；若已設定 PAT 則用較高速率限制（API 限制 60→5000/hr/IP）。
+// 檔案內容用 raw.githubusercontent.com 拉，沒有 API 速率限制。
+// ============================================================
+async function fetchTagLibraryCommitHistory(perPage) {
+    if (!GITHUB_REPO_INFO) throw new Error('無法判定 GitHub repo（請在 *.github.io 部署環境使用）');
+    const { owner, repo, branch } = GITHUB_REPO_INFO;
+    const url = `https://api.github.com/repos/${owner}/${repo}/commits?path=${encodeURIComponent(TAGS_JSON_PATH)}&sha=${encodeURIComponent(branch)}&per_page=${perPage || 50}`;
+    const headers = { 'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
+    const pat = getStoredPAT();
+    if (pat) headers['Authorization'] = `Bearer ${pat}`;
+    const res = await fetch(url, { headers });
+    if (!res.ok) {
+        if (res.status === 403) throw new Error('GitHub API 速率限制（請設定 PAT 後重試以提升額度）');
+        throw new Error('HTTP ' + res.status);
+    }
+    return await res.json();
+}
+
+async function fetchTagLibraryAtCommit(sha) {
+    if (!GITHUB_REPO_INFO) throw new Error('無法判定 GitHub repo');
+    const { owner, repo } = GITHUB_REPO_INFO;
+    // raw.githubusercontent.com 不會 rate-limit（純 CDN）
+    const url = `https://raw.githubusercontent.com/${owner}/${repo}/${encodeURIComponent(sha)}/${TAGS_JSON_PATH}`;
+    const res = await fetch(url, { cache: 'no-cache' });
+    if (!res.ok) throw new Error('HTTP ' + res.status + '（commit ' + sha.slice(0, 7) + ' 可能不含此檔案）');
+    return await res.json();
+}
+
+async function openTagHistory() {
+    const overlay = document.getElementById('tag-history-overlay');
+    if (!overlay) return;
+    overlay.style.display = 'flex';
+    document.getElementById('tag-history-status').textContent = '載入中…';
+    const listEl = document.getElementById('tag-history-list');
+    listEl.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);">⏳ 正在從 GitHub 拉取 commit 歷史…</div>';
+    try {
+        const commits = await fetchTagLibraryCommitHistory(50);
+        if (!commits.length) {
+            document.getElementById('tag-history-status').textContent = '沒有歷史紀錄';
+            listEl.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);">沒有 commit 紀錄</div>';
+            return;
+        }
+        document.getElementById('tag-history-status').textContent = `已載入最近 ${commits.length} 個 commit（最新在最上）`;
+        renderTagHistoryList(commits);
+    } catch (e) {
+        document.getElementById('tag-history-status').textContent = '載入失敗';
+        listEl.innerHTML = `<div style="padding:30px;text-align:center;color:var(--danger);">載入失敗：${escapeHtml(e.message)}</div>`;
+    }
+}
+
+function renderTagHistoryList(commits) {
+    const listEl = document.getElementById('tag-history-list');
+    listEl.innerHTML = '';
+    const currentDoc = getTagLibraryDoc();
+    commits.forEach((c) => {
+        const sha = c.sha;
+        const short = sha.slice(0, 7);
+        const date = c.commit && c.commit.author && c.commit.author.date ? new Date(c.commit.author.date) : null;
+        const dateStr = date ? date.toLocaleString('zh-TW', { hour12: false }) : '?';
+        const authorName = (c.commit && c.commit.author && c.commit.author.name) || (c.author && c.author.login) || '?';
+        const fullMsg = (c.commit && c.commit.message) || '';
+        const firstLine = fullMsg.split('\n')[0];
+        const revMatch = firstLine.match(/revision\s+(\d+)/i);
+        const revBadge = revMatch ? `<span style="background:#dbeafe;color:#1d4ed8;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600;">revision ${escapeHtml(revMatch[1])}</span>` : '';
+        const isCurrent = revMatch && currentDoc && String(currentDoc.revision) === revMatch[1];
+        const currentBadge = isCurrent ? '<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600;">⏵ 目前載入中</span>' : '';
+
+        const row = document.createElement('div');
+        row.className = 'tag-history-row';
+        row.innerHTML = `
+            <div style="flex:1;min-width:0;">
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px;">
+                    ${revBadge}
+                    ${currentBadge}
+                    <span style="font-size:11px;color:var(--text-muted);">${escapeHtml(dateStr)} · ${escapeHtml(authorName)} · <a href="${escapeAttr(c.html_url)}" target="_blank" rel="noopener" style="color:var(--accent);">${escapeHtml(short)}</a></span>
+                </div>
+                <div style="font-size:12px;color:var(--text-primary);word-break:break-all;">${escapeHtml(firstLine)}</div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;">
+                <button class="btn btn-small" data-sha="${escapeAttr(sha)}" data-action="preview" title="預覽此版本的 tagLibrary 內容（不會載入）">👁 預覽</button>
+                <button class="btn btn-small btn-primary" data-sha="${escapeAttr(sha)}" data-action="restore" title="把此版本載入記憶體；owner 可再按「儲存到伺服器」commit 成新 revision">↻ 載入此版本</button>
+            </div>
+        `;
+        listEl.appendChild(row);
+    });
+    listEl.querySelectorAll('button[data-action]').forEach(btn => {
+        btn.addEventListener('click', () => handleTagHistoryAction(btn));
+    });
+}
+
+async function handleTagHistoryAction(btn) {
+    const sha = btn.getAttribute('data-sha');
+    const action = btn.getAttribute('data-action');
+    const origText = btn.textContent;
+    btn.disabled = true; btn.textContent = '處理中…';
+    try {
+        const doc = await fetchTagLibraryAtCommit(sha);
+        if (action === 'preview') {
+            const norm = normalizeTagLibraryDoc(doc);
+            const tagCount = Object.values(norm.tagLibrary).reduce((s, a) => s + (Array.isArray(a) ? a.length : 0), 0);
+            const summary = `commit ${sha.slice(0, 7)}\nrevision ${norm.revision}（${norm.updatedAt}）\n類別：${norm.categories.map(c => c.label).join(' / ')}\n標籤數：${tagCount}`;
+            alert(summary + '\n\n— 詳細 JSON（前 4000 字）—\n\n' + JSON.stringify(norm, null, 2).slice(0, 4000));
+        } else if (action === 'restore') {
+            const norm = normalizeTagLibraryDoc(doc);
+            const tagCount = Object.values(norm.tagLibrary).reduce((s, a) => s + (Array.isArray(a) ? a.length : 0), 0);
+            const msg = `即將載入此歷史版本到編輯器：\n\n  commit ${sha.slice(0, 7)}\n  revision ${norm.revision}\n  ${norm.categories.length} 類 / ${tagCount} 標籤\n\n此操作只改本機暫存；維護者須再按「儲存到伺服器」才會 commit 成新 revision。\n\n確定？`;
+            if (!confirm(msg)) { btn.disabled = false; btn.textContent = origText; return; }
+            window.tagLibraryDoc = norm;
+            try { await AppStorage.kvSet('tagLibraryCache', norm); } catch (e) { /* ignore */ }
+            setPendingTagAddon(true);
+            _markTagDocDirty();
+            activeTagManagerCat = (norm.categories[0] && norm.categories[0].key) || 'audience';
+            document.getElementById('tag-history-overlay').style.display = 'none';
+            renderTagManagerStatus();
+            renderTagManagerTabs();
+            renderTagManagerCatEdit();
+            renderTagManagerList();
+            renderCanvas();
+            toast(`已載入 commit ${sha.slice(0, 7)}（revision ${norm.revision}），請按「儲存到伺服器」commit`, 'success');
+        }
+    } catch (e) {
+        console.error(e);
+        toast('操作失敗：' + e.message, 'error');
+    } finally {
+        btn.disabled = false; btn.textContent = origText;
+    }
 }
 
 // ============================================================

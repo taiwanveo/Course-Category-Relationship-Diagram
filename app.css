@@ -1556,6 +1556,54 @@ body {
 .tag-manager-item .delete-btn:hover {
     background: var(--danger); color: #ffffff; border-color: var(--danger);
 }
+.tag-manager-item .drag-handle {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 28px;
+    font-size: 16px; line-height: 1;
+    color: var(--text-muted);
+    cursor: grab;
+    user-select: none;
+    flex-shrink: 0;
+}
+.tag-manager-item .drag-handle:active { cursor: grabbing; }
+.tag-manager-item .move-btn {
+    cursor: pointer;
+    width: 26px; height: 28px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    font-size: 10px;
+}
+.tag-manager-item .move-btn:not(:disabled):hover {
+    background: var(--accent); color: #fff; border-color: var(--accent);
+}
+.tag-manager-item .move-btn:disabled {
+    opacity: 0.35; cursor: not-allowed;
+}
+.tag-manager-item[draggable="true"] { cursor: default; }
+.tag-manager-item.dragging { opacity: 0.4; }
+.tag-manager-item.drag-over {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(99,102,241,0.25) inset;
+}
+.tag-manager-sort-toolbar {
+    display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+    padding: 6px 8px;
+    margin-bottom: 8px;
+    background: rgba(99,102,241,0.04);
+    border: 1px dashed rgba(99,102,241,0.25);
+    border-radius: var(--radius-sm);
+}
+.tag-history-row {
+    display: flex; gap: 12px; align-items: center;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-card);
+}
+.tag-history-row:last-child { border-bottom: none; }
+.tag-history-row:hover { background: rgba(99,102,241,0.04); }
 .tag-manager-add { display: flex; gap: 6px; align-items: center; }
 .tag-manager-add input[type="text"] {
     flex: 1;

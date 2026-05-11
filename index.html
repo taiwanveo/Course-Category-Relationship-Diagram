@@ -344,6 +344,25 @@
             </div>
         </div>
 
+        <!-- 標籤庫版本歷史（從 GitHub commits 拉取，可選任一版本還原至記憶體） -->
+        <div id="tag-history-overlay" class="modal-overlay" style="display:none;">
+            <div class="modal" style="max-width:760px;max-height:85vh;display:flex;flex-direction:column;">
+                <h2>📜 標籤庫版本歷史（GitHub）</h2>
+                <p class="modal-desc">直接從 GitHub repo 列出 <code>data/tags.json</code> 過去所有 commit。選任一版本「載入」後會放進編輯器記憶體並標記為待儲存；維護者可再按「儲存到伺服器」commit 成新 revision。</p>
+                <div id="tag-history-filter-bar" style="display:flex;gap:8px;align-items:center;padding:6px 0 10px;font-size:12px;color:var(--text-secondary);flex-wrap:wrap;">
+                    <span id="tag-history-status">載入中…</span>
+                    <span style="flex:1;"></span>
+                    <button id="tag-history-refresh" class="btn btn-small" title="重新從 GitHub API 抓最新 commit 列表">↻ 重新整理</button>
+                </div>
+                <div id="tag-history-list" style="overflow:auto;flex:1;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary);">
+                    <!-- 動態渲染：每筆 commit 一列 -->
+                </div>
+                <div class="modal-actions">
+                    <button id="tag-history-close" class="btn">關閉</button>
+                </div>
+            </div>
+        </div>
+
         <!-- 按鈕色票 -->
         <div id="button-palette-overlay" class="modal-overlay" style="display:none;">
             <div class="modal">
