@@ -93,39 +93,242 @@ const TAG_CATEGORY_LABELS = {
     topic:    'D. 主題',
     format:   'E. 形式'
 };
-const TAG_CATEGORY_KEYS = ['audience', 'level', 'attribute', 'topic', 'format'];
-const TAG_CATEGORY_KEYS_BUILTIN = TAG_CATEGORY_KEYS;
-const MAX_CUSTOM_CATEGORIES = 2;
+// 預設 5 個 key 字串保留，純粹是為了與既有 diagrams 內 class.tags.audience 等引用相容；
+// 程式邏輯不再給予「內建」特權，全部 7 類完全對稱。
+const TAG_CATEGORY_KEYS_DEFAULT = ['audience', 'level', 'attribute', 'topic', 'format'];
+const MAX_CATEGORIES = 7;
+const TAG_LIBRARY_DOC_SCHEMA_VERSION = 2;
+const TAGS_JSON_PATH = 'data/tags.json';
+
+// 用於 owner mode 從 GitHub Contents API 寫回 tags.json 的 repo 資訊；
+// 線上部署於 user.github.io/repo/ 時自動推導；本機/其他環境保留預設值以便測試。
+const GITHUB_REPO_INFO = (function () {
+    try {
+        const host = location.hostname || '';
+        if (/\.github\.io$/i.test(host)) {
+            const user = host.replace(/\.github\.io$/i, '');
+            const segs = (location.pathname || '').split('/').filter(Boolean);
+            const repo = segs[0] || '';
+            if (user && repo) return { owner: user, repo, branch: 'main' };
+        }
+    } catch (e) { /* ignore */ }
+    return { owner: 'taiwanveo', repo: 'Course-Category-Relationship-Diagram', branch: 'main' };
+})();
 
 // ============================================================
-// 動態類別 helpers（內建 5 個 + 最多 2 個自訂）
+// 標籤庫文件（schemaVersion 2）：7 類完全對稱的 single source
+//   - 由 GitHub Pages 提供 ./data/tags.json
+//   - 啟動時 fetch；失敗 → IndexedDB cache；再失敗 → 內建 DEFAULT
+//   - owner（已設定 GitHub PAT）才能透過 GitHub Contents API commit
 // ============================================================
-function getAllCategoryKeys() {
-    const customs = (projectData && Array.isArray(projectData.customTagCategories))
-        ? projectData.customTagCategories : [];
-    return [...TAG_CATEGORY_KEYS_BUILTIN, ...customs.map(c => c.key)];
+function buildDefaultTagLibraryDoc() {
+    const cats = [];
+    const lib = {};
+    let _tid = 1;
+    TAG_CATEGORY_KEYS_DEFAULT.forEach((key, idx) => {
+        cats.push({ key, label: TAG_CATEGORY_LABELS[key], order: idx });
+        lib[key] = (DEFAULT_TAG_LIBRARY[key] || []).map(t => ({
+            id: 't' + (_tid++),
+            name: t.name,
+            color: t.color
+        }));
+    });
+    return {
+        schemaVersion: TAG_LIBRARY_DOC_SCHEMA_VERSION,
+        revision: 0,
+        updatedAt: new Date().toISOString(),
+        categories: cats,
+        tagLibrary: lib
+    };
 }
-function getCategoryLabel(key) {
-    if (TAG_CATEGORY_KEYS_BUILTIN.indexOf(key) >= 0) {
-        if (projectData && projectData.builtinCategoryLabels && projectData.builtinCategoryLabels[key]) {
-            return projectData.builtinCategoryLabels[key];
-        }
-        return TAG_CATEGORY_LABELS[key];
+
+// 容錯：把任何輸入正規化成 schemaVersion 2 的對稱結構
+function normalizeTagLibraryDoc(raw) {
+    const doc = (raw && typeof raw === 'object') ? raw : {};
+    const out = {
+        schemaVersion: TAG_LIBRARY_DOC_SCHEMA_VERSION,
+        revision: typeof doc.revision === 'number' ? doc.revision : 0,
+        updatedAt: doc.updatedAt || new Date().toISOString(),
+        categories: Array.isArray(doc.categories) ? doc.categories.slice() : [],
+        tagLibrary: (doc.tagLibrary && typeof doc.tagLibrary === 'object') ? doc.tagLibrary : {}
+    };
+    // 舊 schema（v1：builtinCategoryLabels + customTagCategories）→ 合併成 categories 陣列
+    if (out.categories.length === 0 && (doc.builtinCategoryLabels || doc.customTagCategories)) {
+        TAG_CATEGORY_KEYS_DEFAULT.forEach((k, i) => {
+            const label = (doc.builtinCategoryLabels && doc.builtinCategoryLabels[k]) || TAG_CATEGORY_LABELS[k];
+            out.categories.push({ key: k, label, order: i });
+        });
+        (doc.customTagCategories || []).forEach((c, i) => {
+            if (!c || !c.key) return;
+            out.categories.push({ key: c.key, label: c.label || c.key, order: TAG_CATEGORY_KEYS_DEFAULT.length + i });
+        });
     }
-    const customs = (projectData && Array.isArray(projectData.customTagCategories))
-        ? projectData.customTagCategories : [];
-    const c = customs.find(x => x.key === key);
+    if (out.categories.length === 0) {
+        // 完全無資料 → 用預設
+        const def = buildDefaultTagLibraryDoc();
+        out.categories = def.categories;
+        out.tagLibrary = def.tagLibrary;
+    }
+    out.categories.forEach((c, i) => {
+        if (typeof c.order !== 'number') c.order = i;
+        if (!c.label) c.label = c.key;
+        if (!Array.isArray(out.tagLibrary[c.key])) out.tagLibrary[c.key] = [];
+    });
+    out.categories.sort((a, b) => (a.order || 0) - (b.order || 0));
+    return out;
+}
+
+async function loadTagLibraryDoc() {
+    let lastErr = null;
+    // 1) 嘗試 fetch ./data/tags.json
+    try {
+        const res = await fetch(TAGS_JSON_PATH + '?t=' + Date.now(), { cache: 'no-cache' });
+        if (res && res.ok) {
+            const raw = await res.json();
+            const doc = normalizeTagLibraryDoc(raw);
+            window.tagLibraryDoc = doc;
+            try { await AppStorage.kvSet('tagLibraryCache', doc); } catch (e) { /* ignore */ }
+            return { source: 'server', doc };
+        }
+        lastErr = new Error('HTTP ' + (res && res.status));
+    } catch (e) { lastErr = e; }
+    // 2) 退而求其次：IndexedDB cache
+    try {
+        const cached = await AppStorage.kvGet('tagLibraryCache');
+        if (cached && (cached.tagLibrary || cached.categories)) {
+            const doc = normalizeTagLibraryDoc(cached);
+            window.tagLibraryDoc = doc;
+            console.warn('[tags] 使用本地快取（線上載入失敗）', lastErr);
+            return { source: 'cache', doc };
+        }
+    } catch (e) { /* ignore */ }
+    // 3) 兜底：內建預設
+    const doc = buildDefaultTagLibraryDoc();
+    window.tagLibraryDoc = doc;
+    if (lastErr) console.warn('[tags] 使用預設標籤庫（線上與快取皆無）', lastErr);
+    return { source: 'default', doc };
+}
+
+// ============================================================
+// 標籤庫讀取 helpers（全部從 window.tagLibraryDoc 取，與 projectData 解耦）
+// ============================================================
+function getTagLibraryDoc() {
+    if (!window.tagLibraryDoc) window.tagLibraryDoc = buildDefaultTagLibraryDoc();
+    return window.tagLibraryDoc;
+}
+function getTagLibrary() { return getTagLibraryDoc().tagLibrary || {}; }
+function getCategories() { return getTagLibraryDoc().categories || []; }
+function getAllCategoryKeys() { return getCategories().map(c => c.key); }
+function getCategoryLabel(key) {
+    const c = getCategories().find(x => x.key === key);
     return c ? c.label : key;
 }
-function getCustomCategories() {
-    return (projectData && Array.isArray(projectData.customTagCategories))
-        ? projectData.customTagCategories : [];
-}
-function isBuiltinCategory(key) {
-    return TAG_CATEGORY_KEYS_BUILTIN.indexOf(key) >= 0;
-}
-function generateCustomCategoryKey() {
+function findCategory(key) { return getCategories().find(c => c.key === key) || null; }
+function generateCategoryKey() {
     return 'custom_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+}
+// 計算下一個 tag id：掃描所有 tagLibrary，取最大編號 + 1
+function nextTagId() {
+    const lib = getTagLibrary();
+    let mx = 0;
+    Object.keys(lib).forEach(cat => {
+        (lib[cat] || []).forEach(t => {
+            const m = (t.id || '').match(/^t(\d+)$/);
+            if (m) mx = Math.max(mx, parseInt(m[1], 10));
+        });
+    });
+    return 't' + (mx + 1);
+}
+
+// ============================================================
+// GitHub PAT（Owner mode）
+// ============================================================
+const PAT_LS_KEY = 'ccrd:github:pat';
+function getStoredPAT() {
+    try { return localStorage.getItem(PAT_LS_KEY) || ''; } catch (e) { return ''; }
+}
+function setStoredPAT(token) {
+    try {
+        if (token) localStorage.setItem(PAT_LS_KEY, token);
+        else localStorage.removeItem(PAT_LS_KEY);
+    } catch (e) { /* ignore */ }
+}
+function isOwnerMode() { return !!getStoredPAT(); }
+
+// 用瀏覽器內建 API 安全地把 UTF-8 字串編成 base64
+function utf8ToBase64(str) {
+    try {
+        return btoa(unescape(encodeURIComponent(str)));
+    } catch (e) {
+        // fallback：TextEncoder + chunked btoa
+        const bytes = new TextEncoder().encode(str);
+        let bin = '';
+        for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+        return btoa(bin);
+    }
+}
+
+async function ghApiContentsGet() {
+    const repo = GITHUB_REPO_INFO;
+    const pat = getStoredPAT();
+    const url = `https://api.github.com/repos/${repo.owner}/${repo.repo}/contents/${TAGS_JSON_PATH}?ref=${encodeURIComponent(repo.branch)}`;
+    const headers = {
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28'
+    };
+    if (pat) headers['Authorization'] = 'Bearer ' + pat;
+    const res = await fetch(url, { headers });
+    if (res.status === 404) return { sha: null, content: null };
+    if (!res.ok) throw new Error('GitHub GET 失敗：HTTP ' + res.status);
+    const body = await res.json();
+    return { sha: body.sha || null, content: body.content || null };
+}
+
+async function commitTagLibraryDocToGitHub(message) {
+    const pat = getStoredPAT();
+    if (!pat) throw new Error('尚未設定 GitHub PAT（無寫入權限）');
+    if (!window.tagLibraryDoc) throw new Error('無 tagLibraryDoc 可上傳');
+    const repo = GITHUB_REPO_INFO;
+    // 1. 取目前 SHA（樂觀鎖）
+    const { sha } = await ghApiContentsGet();
+    // 2. 提升 revision / updatedAt
+    const doc = JSON.parse(JSON.stringify(window.tagLibraryDoc));
+    doc.schemaVersion = TAG_LIBRARY_DOC_SCHEMA_VERSION;
+    doc.revision = (typeof doc.revision === 'number' ? doc.revision : 0) + 1;
+    doc.updatedAt = new Date().toISOString();
+    // 3. 編碼 + PUT
+    const json = JSON.stringify(doc, null, 2) + '\n';
+    const content = utf8ToBase64(json);
+    const url = `https://api.github.com/repos/${repo.owner}/${repo.repo}/contents/${TAGS_JSON_PATH}`;
+    const putBody = {
+        message: message || `chore(tags): update tag library (revision ${doc.revision})`,
+        content,
+        branch: repo.branch
+    };
+    if (sha) putBody.sha = sha;
+    const res = await fetch(url, {
+        method: 'PUT',
+        headers: {
+            'Authorization': 'Bearer ' + pat,
+            'Accept': 'application/vnd.github+json',
+            'X-GitHub-Api-Version': '2022-11-28',
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(putBody)
+    });
+    if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        if (res.status === 409 || res.status === 422) {
+            throw new Error('伺服器上有更新版本（樂觀鎖衝突）：請重新整理頁面取得最新版後再儲存。');
+        }
+        if (res.status === 401 || res.status === 403) {
+            throw new Error('PAT 無效或權限不足：請確認 fine-grained PAT 的 Contents: write 範圍只授權給 ' + repo.owner + '/' + repo.repo);
+        }
+        throw new Error('GitHub commit 失敗：HTTP ' + res.status + ' — ' + text.slice(0, 200));
+    }
+    window.tagLibraryDoc = doc;
+    try { await AppStorage.kvSet('tagLibraryCache', doc); } catch (e) { /* ignore */ }
+    return doc;
 }
 
 // 標籤名稱對齊：把 class.tags[cat] 中的「短名/別名」轉為 tagLibrary 上的正規名稱
@@ -154,10 +357,11 @@ function findCanonicalTagName(rawName, libraryNames) {
     return null;
 }
 function normalizeClassTagsAgainstLibrary(pd) {
-    if (!pd || !pd.tagLibrary || !Array.isArray(pd.components)) return 0;
+    if (!pd || !Array.isArray(pd.components)) return 0;
+    const lib = getTagLibrary();
     const libNames = {};
-    Object.keys(pd.tagLibrary).forEach(cat => {
-        libNames[cat] = (pd.tagLibrary[cat] || []).map(t => t.name).filter(Boolean);
+    Object.keys(lib).forEach(cat => {
+        libNames[cat] = (lib[cat] || []).map(t => t.name).filter(Boolean);
     });
     let changed = 0;
     pd.components.forEach(c => {
@@ -228,6 +432,14 @@ async function boot() {
 
     // 嘗試遷移 v1 草稿
     await AppStorage.tryMigrateV1Draft();
+
+    // 線上載入標籤庫（先嘗試 server → cache → 內建預設）；必須在 setActiveDiagram 之前完成
+    const tagLoadResult = await loadTagLibraryDoc();
+    if (tagLoadResult.source === 'cache') {
+        toast(`目前使用本地標籤快取（revision ${tagLoadResult.doc.revision}）— 線上載入失敗`, 'warning');
+    } else if (tagLoadResult.source === 'default') {
+        toast('找不到線上標籤庫，已使用內建預設', 'info');
+    }
 
     // 載入最近的 diagram
     let lastId = AppStorage.Settings.getLastDiagramId();
@@ -378,31 +590,20 @@ function toggleViewMode() {
 // Diagram 載入 / 切換
 // ============================================================
 function createEmptyDiagram(name, subject) {
+    // v3.2：tagLibrary / customTagCategories / builtinCategoryLabels 已移至中央
+    // data/tags.json，不再放入單一 diagram。
     return {
         id: AppStorage.generateUUID(),
-        version: '3.0',
+        version: '3.2',
         name: name || '新分類圖',
         subject: subject || '人工智慧 (AI)',
         board: { w: 3200, h: 1800, background: { type: 'fineGrid', baseColor: '#ffffff', gridColor: '#e2e8f0' } },
-        tagLibrary: buildDefaultTagLibrary(),
         components: [],
         connectors: [],
         assets: {},
         createdAt: Date.now(),
         updatedAt: Date.now()
     };
-}
-
-function buildDefaultTagLibrary() {
-    const lib = {};
-    Object.keys(DEFAULT_TAG_LIBRARY).forEach(cat => {
-        lib[cat] = DEFAULT_TAG_LIBRARY[cat].map(t => ({
-            id: 't' + (tagIdCounter++),
-            name: t.name,
-            color: t.color
-        }));
-    });
-    return lib;
 }
 
 function setActiveDiagram(diagram) {
@@ -412,7 +613,7 @@ function setActiveDiagram(diagram) {
     selectedComponentId = null;
     selectedConnectorId = null;
     // 重置 ID counter
-    let mc = 0, mn = 0, mt = 0, ml = 0;
+    let mc = 0, mn = 0, ml = 0;
     projectData.components.forEach(c => {
         const m = c.id && c.id.match(/^c(\d+)$/);
         if (m) mc = Math.max(mc, parseInt(m[1], 10));
@@ -427,15 +628,10 @@ function setActiveDiagram(diagram) {
         const m = c.id && c.id.match(/^conn(\d+)$/);
         if (m) mn = Math.max(mn, parseInt(m[1], 10));
     });
-    Object.keys(projectData.tagLibrary || {}).forEach(cat => {
-        (projectData.tagLibrary[cat] || []).forEach(t => {
-            const m = (t.id || '').match(/^t(\d+)$/);
-            if (m) mt = Math.max(mt, parseInt(m[1], 10));
-        });
-    });
     componentIdCounter = mc + 1;
     connectorIdCounter = mn + 1;
-    tagIdCounter = Math.max(tagIdCounter, mt + 1);
+    // tag id 由中央 tagLibraryDoc 自行管理（nextTagId）；不再從 projectData 取
+    tagIdCounter = 1;
     classIdCounter = ml + 1;
     AppStorage.Settings.setLastDiagramId(projectData.id);
 }
@@ -447,34 +643,17 @@ function ensureDiagramIntegrity() {
     if (!projectData.subject) projectData.subject = '人工智慧 (AI)';
     if (!projectData.board) projectData.board = { w: 3200, h: 1800, background: { type: 'fineGrid', baseColor: '#ffffff', gridColor: '#e2e8f0' } };
     if (!projectData.board.background) projectData.board.background = { type: 'fineGrid', baseColor: '#ffffff', gridColor: '#e2e8f0' };
-    if (!projectData.tagLibrary) projectData.tagLibrary = buildDefaultTagLibrary();
-    TAG_CATEGORY_KEYS.forEach(cat => {
-        if (!Array.isArray(projectData.tagLibrary[cat])) projectData.tagLibrary[cat] = [];
-    });
-    // v3.1：自訂類別（最多 2 個）+ 內建類別重命名（label override）
-    if (!Array.isArray(projectData.customTagCategories)) projectData.customTagCategories = [];
-    if (!projectData.builtinCategoryLabels) projectData.builtinCategoryLabels = {};
-    projectData.customTagCategories.forEach(c => {
-        if (!Array.isArray(projectData.tagLibrary[c.key])) projectData.tagLibrary[c.key] = [];
-    });
-    if (!projectData.seeded) projectData.seeded = {};
+    if (!Array.isArray(projectData.components)) projectData.components = [];
+    if (!Array.isArray(projectData.connectors)) projectData.connectors = [];
+    if (!projectData.assets) projectData.assets = {};
+    // 「靈感班名」清單：場景 B 上傳但不放入圖中的班名暫存區
+    if (!Array.isArray(projectData.inspirationClasses)) projectData.inspirationClasses = [];
 
-    // 自動補齊「屬性」分類預設值（首次開啟、適用於 v1 遷移過來的舊資料）
-    // 種完後永久標記，使用者後續刪除不會被覆蓋
-    if (!projectData.seeded.attribute) {
-        if (projectData.tagLibrary.attribute.length === 0) {
-            projectData.tagLibrary.attribute = DEFAULT_TAG_LIBRARY.attribute.map(t => ({
-                id: 't' + (tagIdCounter++), name: t.name, color: t.color
-            }));
-        }
-        projectData.seeded.attribute = true;
-    }
+    // === v3.2：tagLibrary / customTagCategories / builtinCategoryLabels 已遷至中央 ===
+    // 舊資料若還帶這些欄位，當下保留不主動清空（給 missing-fallback 用做最後的顏色備援），
+    // 但下次 saveDiagram 前的 sanitizer 會把它們拋棄。
 
-    // 重命名 v1 殘留：證照模擬 → 證照
-    (projectData.tagLibrary.format || []).forEach(t => {
-        if (t.name === '證照模擬') t.name = '證照';
-    });
-    // 同步更新班名上記錄的標籤名稱（class 標籤儲存的是 name 字串）
+    // 重命名 v1 殘留：證照模擬 → 證照（仍要修班名上的字串）
     projectData.components.forEach(c => {
         if (c.type === 'course-category' && Array.isArray(c.props.classes)) {
             c.props.classes.forEach(cl => {
@@ -485,19 +664,12 @@ function ensureDiagramIntegrity() {
         }
     });
 
-    // 班名 tag 名稱與 tagLibrary 對齊：避免 AI / 匯入時把短名（例「善」）寫進去
-    // 但 library 是全名（例「善（會用）」），導致篩選器永遠抓不到。
+    // 班名 tag 名稱與中央 tagLibraryDoc 對齊：避免 AI / 匯入時把短名（例「善」）寫進去
     const _normalizedCount = normalizeClassTagsAgainstLibrary(projectData);
     if (_normalizedCount > 0 && typeof scheduleSaveDraft === 'function') {
-        // 有實質修正 → 排程持久化，讓修正結果寫回 IndexedDB
         scheduleSaveDraft();
     }
 
-    if (!Array.isArray(projectData.components)) projectData.components = [];
-    if (!Array.isArray(projectData.connectors)) projectData.connectors = [];
-    if (!projectData.assets) projectData.assets = {};
-    // 「靈感班名」清單：場景 B 上傳但不放入圖中的班名暫存區
-    if (!Array.isArray(projectData.inspirationClasses)) projectData.inspirationClasses = [];
     // 升級 v1 卡片：補 attribute、classes
     projectData.components.forEach(c => {
         if (c.type === 'course-category') {
@@ -510,9 +682,22 @@ function ensureDiagramIntegrity() {
     });
 }
 
+// 把 deprecated 欄位拋棄；於 persistCurrentDiagram / saveDiagram 之前呼叫
+function stripDeprecatedTagFields(diagram) {
+    if (!diagram) return diagram;
+    if (diagram.tagLibrary) delete diagram.tagLibrary;
+    if (diagram.customTagCategories) delete diagram.customTagCategories;
+    if (diagram.builtinCategoryLabels) delete diagram.builtinCategoryLabels;
+    if (diagram.seeded) delete diagram.seeded;
+    return diagram;
+}
+
 async function persistCurrentDiagram() {
     if (!projectData) return;
     projectData.assets = assets;
+    // 寫回前清掉 deprecated 欄位（tagLibrary / customTagCategories / builtinCategoryLabels）
+    // 標籤資料已移至中央 data/tags.json，不再放在 diagram 裡
+    stripDeprecatedTagFields(projectData);
     try {
         await AppStorage.saveDiagram(projectData);
     } catch (err) {
@@ -1825,12 +2010,21 @@ function renderCategoryCard(div, comp) {
         let total = 0;
         getAllCategoryKeys().forEach(cat => {
             (at[cat] || []).forEach(tagId => {
-                const tag = findTagById(cat, tagId); if (!tag) return;
+                const tag = findTagById(cat, tagId);
                 const chip = document.createElement('span');
                 chip.className = 'card-tag';
-                chip.style.background = tag.color;
-                chip.textContent = tag.name;
-                chip.title = getCategoryLabel(cat) + '：' + tag.name;
+                if (tag) {
+                    chip.style.background = tag.color;
+                    chip.textContent = tag.name;
+                    chip.title = getCategoryLabel(cat) + '：' + tag.name;
+                } else {
+                    // 此 id 已不在伺服器標籤庫中 → 降級為灰色「已停用」徽章
+                    chip.style.background = '#94a3b8';
+                    chip.style.textDecoration = 'line-through';
+                    chip.style.opacity = '0.7';
+                    chip.textContent = '⚠ ' + tagId;
+                    chip.title = getCategoryLabel(cat) + '：此標籤已不在伺服器標籤庫中（id ' + tagId + '）';
+                }
                 tagsWrap.appendChild(chip);
                 total++;
             });
@@ -1905,12 +2099,14 @@ function renderTagComponent(div, comp) {
     div.textContent = comp.props.name || '標籤';
 }
 function findTagById(cat, id) {
-    if (!projectData.tagLibrary[cat]) return null;
-    return projectData.tagLibrary[cat].find(t => t.id === id);
+    const lib = getTagLibrary()[cat];
+    if (!lib) return null;
+    return lib.find(t => t.id === id) || null;
 }
 function findTagByName(cat, name) {
-    if (!projectData.tagLibrary[cat]) return null;
-    return projectData.tagLibrary[cat].find(t => t.name === name);
+    const lib = getTagLibrary()[cat];
+    if (!lib) return null;
+    return lib.find(t => t.name === name) || null;
 }
 
 // ============================================================
@@ -3138,7 +3334,7 @@ function renderTagChecker(comp) {
         const lbl = document.createElement('div'); lbl.className = 'tag-checker-cat-label'; lbl.textContent = getCategoryLabel(cat);
         catWrap.appendChild(lbl);
         const row = document.createElement('div'); row.className = 'tag-checker-row';
-        const lib = projectData.tagLibrary[cat] || [];
+        const lib = getTagLibrary()[cat] || [];
         if (lib.length === 0) {
             const empty = document.createElement('div'); empty.className = 'tag-checker-empty'; empty.textContent = '（尚無標籤）';
             catWrap.appendChild(empty);
@@ -3767,26 +3963,87 @@ function pasteStyle(comp) {
 
 // ============================================================
 // 標籤管理 Modal
+// ----
+// 標籤庫已遷至中央 data/tags.json（5+2=7 類完全對稱）：
+//   - 訪客（無 PAT）：唯讀，編輯按鈕禁用，僅供瀏覽當下標籤庫
+//   - Owner（有 PAT）：可編輯，按「儲存到伺服器」commit 至 GitHub
+//   - 編輯不影響本機 IndexedDB 的 diagrams；class.tags 用 name 引用，
+//     當庫內某 tag 不見時渲染層會降級顯示「⚠ 已停用」
 // ============================================================
+let tagLibraryDocDirty = false;       // owner 編輯後是否有未儲存的變更
+
+function _activeCategoryKeyOrFirst() {
+    const keys = getAllCategoryKeys();
+    if (keys.indexOf(activeTagManagerCat) >= 0) return activeTagManagerCat;
+    return keys[0] || 'audience';
+}
+function _markTagDocDirty() {
+    tagLibraryDocDirty = true;
+    const doc = getTagLibraryDoc();
+    doc.updatedAt = new Date().toISOString();
+    renderTagManagerStatus();
+}
+function _isViewerReadonly() { return !isOwnerMode(); }
+
 function openTagManager() {
-    activeTagManagerCat = 'audience';
+    activeTagManagerCat = _activeCategoryKeyOrFirst();
+    tagLibraryDocDirty = false;
+    renderTagManagerStatus();
     renderTagManagerTabs();
     renderTagManagerCatEdit();
     renderTagManagerList();
     document.getElementById('tag-manager-overlay').style.display = 'flex';
 }
+
+// 頂部模式列：顯示 revision 與 owner/visitor 狀態，並提供「儲存到伺服器」「重設」等按鈕
+function renderTagManagerStatus() {
+    const bar = document.getElementById('tag-manager-status');
+    if (!bar) return;
+    const doc = getTagLibraryDoc();
+    const owner = isOwnerMode();
+    const revText = `revision ${doc.revision || 0}`;
+    if (owner) {
+        bar.innerHTML = `
+            <span class="status-badge owner">✏ 維護者模式</span>
+            <span class="status-rev">標籤庫 ${escapeHtml(revText)}${tagLibraryDocDirty ? '（有未儲存的變更）' : ''}</span>
+            <span style="flex:1;"></span>
+            <button id="tag-doc-save" class="btn btn-small btn-primary" ${tagLibraryDocDirty ? '' : 'disabled'} title="把目前 tagLibraryDoc commit 到 GitHub repo">儲存到伺服器</button>
+            <button id="tag-doc-reload" class="btn btn-small" title="從伺服器重新載入最新版（會放棄未儲存的變更）">重新載入</button>
+            <button id="tag-doc-reset" class="btn btn-small" title="把標籤庫重設為原廠預設（不會自動儲存）">↺ 原廠預設</button>
+            <button id="tag-doc-download" class="btn btn-small" title="下載目前 tagLibraryDoc 為 tags.json（供初次部署或備份）">⬇ 下載 tags.json</button>
+        `;
+        const sb = document.getElementById('tag-doc-save');
+        if (sb) sb.addEventListener('click', () => handleTagDocSave());
+        const rb = document.getElementById('tag-doc-reload');
+        if (rb) rb.addEventListener('click', () => handleTagDocReload());
+        const rs = document.getElementById('tag-doc-reset');
+        if (rs) rs.addEventListener('click', () => handleTagDocResetToDefault());
+        const db = document.getElementById('tag-doc-download');
+        if (db) db.addEventListener('click', () => handleTagDocDownload());
+    } else {
+        bar.innerHTML = `
+            <span class="status-badge readonly">🔒 唯讀</span>
+            <span class="status-rev">標籤庫 ${escapeHtml(revText)} — 由維護者集中管理</span>
+            <span style="flex:1;"></span>
+            <button id="tag-doc-pat-setup" class="btn btn-small" title="設定 GitHub PAT 以進入維護者模式">維護者設定…</button>
+        `;
+        const ps = document.getElementById('tag-doc-pat-setup');
+        if (ps) ps.addEventListener('click', () => openOwnerPATSetup());
+    }
+}
+
 function renderTagManagerTabs() {
     const wrap = document.getElementById('tag-manager-tabs');
     if (!wrap) return;
     wrap.innerHTML = '';
-    getAllCategoryKeys().forEach(key => {
+    const cats = getCategories();
+    cats.forEach(c => {
         const btn = document.createElement('button');
-        btn.className = 'tag-tab' + (key === activeTagManagerCat ? ' active' : '');
-        btn.dataset.tagcat = key;
-        btn.textContent = getCategoryLabel(key);
-        if (!isBuiltinCategory(key)) btn.title = '自訂類別（可改名／刪除）';
+        btn.className = 'tag-tab' + (c.key === activeTagManagerCat ? ' active' : '');
+        btn.dataset.tagcat = c.key;
+        btn.textContent = c.label;
         btn.addEventListener('click', () => {
-            activeTagManagerCat = key;
+            activeTagManagerCat = c.key;
             renderTagManagerTabs();
             renderTagManagerCatEdit();
             renderTagManagerList();
@@ -3794,109 +4051,114 @@ function renderTagManagerTabs() {
         wrap.appendChild(btn);
     });
     // 「＋ 新增類別」按鈕
-    const customCount = getCustomCategories().length;
+    const total = cats.length;
     const addBtn = document.createElement('button');
     addBtn.className = 'tag-tab tag-tab-add';
     addBtn.style.cssText = 'background:rgba(99,102,241,0.12);color:#4f46e5;font-weight:600;';
-    addBtn.textContent = `＋ 新增類別 (${customCount}/${MAX_CUSTOM_CATEGORIES})`;
-    if (customCount >= MAX_CUSTOM_CATEGORIES) {
+    addBtn.textContent = `＋ 新增類別 (${total}/${MAX_CATEGORIES})`;
+    const readonly = _isViewerReadonly();
+    if (readonly || total >= MAX_CATEGORIES) {
         addBtn.disabled = true;
         addBtn.style.opacity = '0.45';
         addBtn.style.cursor = 'not-allowed';
-        addBtn.title = `自訂類別已達上限（${MAX_CUSTOM_CATEGORIES} 個）`;
+        addBtn.title = readonly
+            ? '訪客模式：標籤庫為唯讀'
+            : `類別已達上限（${MAX_CATEGORIES} 個）`;
     } else {
         addBtn.addEventListener('click', () => {
-            const defaultLetter = String.fromCharCode(70 + customCount); // F, G
+            const defaultLetter = String.fromCharCode(65 + total); // 第 N+1 個英文字母
             const label = prompt(`輸入新類別名稱（建議格式：${defaultLetter}. 〇〇）：`, `${defaultLetter}. `);
             if (!label) return;
             const trimmed = label.trim();
             if (!trimmed) return;
-            const key = generateCustomCategoryKey();
-            projectData.customTagCategories.push({ key, label: trimmed });
-            projectData.tagLibrary[key] = [];
-            // 為所有現存課程類別卡片補上 assignedTags 空陣列
-            projectData.components.forEach(c => {
-                if (c.type === 'course-category') {
-                    if (!c.props.assignedTags) c.props.assignedTags = {};
-                    c.props.assignedTags[key] = [];
-                    (c.props.classes || []).forEach(cl => {
-                        if (cl.tags && !Array.isArray(cl.tags[key])) cl.tags[key] = [];
-                    });
-                }
-            });
+            const key = generateCategoryKey();
+            const doc = getTagLibraryDoc();
+            doc.categories.push({ key, label: trimmed, order: doc.categories.length });
+            doc.tagLibrary[key] = [];
             activeTagManagerCat = key;
-            scheduleSaveDraft();
+            _markTagDocDirty();
             renderTagManagerTabs();
             renderTagManagerCatEdit();
             renderTagManagerList();
-            toast(`已新增類別「${trimmed}」`, 'success');
+            toast(`已新增類別「${trimmed}」（尚未儲存到伺服器）`, 'success');
         });
     }
     wrap.appendChild(addBtn);
 }
+
 function renderTagManagerCatEdit() {
     const renameInput = document.getElementById('tag-cat-rename');
     const deleteBtn = document.getElementById('tag-cat-delete-btn');
+    const renameBtn = document.getElementById('tag-cat-rename-btn');
     if (!renameInput) return;
+    const readonly = _isViewerReadonly();
+    const total = getCategories().length;
     renameInput.value = getCategoryLabel(activeTagManagerCat);
-    if (isBuiltinCategory(activeTagManagerCat)) {
-        deleteBtn.style.display = 'none';
-    } else {
+    renameInput.disabled = readonly;
+    if (renameBtn) renameBtn.disabled = readonly;
+    // 7 類完全對稱：任一類別都可以刪除（最後一類保留下限避免清光）
+    if (deleteBtn) {
         deleteBtn.style.display = '';
+        deleteBtn.disabled = readonly || total <= 1;
+        deleteBtn.title = readonly
+            ? '訪客模式：標籤庫為唯讀'
+            : (total <= 1 ? '至少要保留 1 個類別' : '刪除此類別（含底下所有標籤）');
     }
 }
+
 function setupTagManagerModal() {
-    // 重命名類別
     document.getElementById('tag-cat-rename-btn').addEventListener('click', () => {
+        if (_isViewerReadonly()) return;
         const newLabel = document.getElementById('tag-cat-rename').value.trim();
         if (!newLabel) { toast('類別名稱不能為空', 'warning'); return; }
-        if (isBuiltinCategory(activeTagManagerCat)) {
-            projectData.builtinCategoryLabels[activeTagManagerCat] = newLabel;
-        } else {
-            const c = projectData.customTagCategories.find(x => x.key === activeTagManagerCat);
-            if (c) c.label = newLabel;
-        }
-        scheduleSaveDraft();
+        const c = findCategory(activeTagManagerCat);
+        if (c) c.label = newLabel;
+        _markTagDocDirty();
         renderTagManagerTabs();
         renderCanvas();
-        toast('類別名稱已更新', 'success');
+        toast('類別名稱已更新（尚未儲存到伺服器）', 'success');
     });
-    // 刪除自訂類別
+    // 刪除類別（任何類別都可刪除）
     document.getElementById('tag-cat-delete-btn').addEventListener('click', () => {
-        if (isBuiltinCategory(activeTagManagerCat)) return;
+        if (_isViewerReadonly()) return;
+        const total = getCategories().length;
+        if (total <= 1) { toast('至少要保留 1 個類別', 'warning'); return; }
         const label = getCategoryLabel(activeTagManagerCat);
-        const tagCount = (projectData.tagLibrary[activeTagManagerCat] || []).length;
-        if (!confirm(`確定刪除自訂類別「${label}」？\n此類別下的 ${tagCount} 個標籤也會一併移除，所有卡片與班名上的此類標籤也會清除。\n（內建 A-E 類不會受影響）`)) return;
+        const lib = getTagLibrary();
+        const tagCount = (lib[activeTagManagerCat] || []).length;
+        const isDefaultKey = TAG_CATEGORY_KEYS_DEFAULT.indexOf(activeTagManagerCat) >= 0;
+        const warn = isDefaultKey
+            ? `⚠ 注意：「${label}」是原始 A–E 預設類別之一。刪除後本機與所有人的圖中相關 tag 都會降級顯示為「已停用」。\n（您之後可以再新增同名類別，或按「↺ 原廠預設」一鍵恢復。）`
+            : `刪除類別「${label}」？`;
+        if (!confirm(`${warn}\n\n此類別下的 ${tagCount} 個標籤定義也會一併移除。\n本機所有圖中已勾選此類的引用會被視為「已停用」，需手動取代。`)) return;
+        const doc = getTagLibraryDoc();
         const delKey = activeTagManagerCat;
-        // 從卡片與班名中移除此類標籤
-        projectData.components.forEach(c => {
-            if (c.type === 'course-category') {
-                if (c.props.assignedTags && c.props.assignedTags[delKey]) delete c.props.assignedTags[delKey];
-                (c.props.classes || []).forEach(cl => {
-                    if (cl.tags && cl.tags[delKey]) delete cl.tags[delKey];
-                });
-            }
-        });
-        delete projectData.tagLibrary[delKey];
-        projectData.customTagCategories = projectData.customTagCategories.filter(x => x.key !== delKey);
-        activeTagManagerCat = 'audience';
-        scheduleSaveDraft();
+        delete doc.tagLibrary[delKey];
+        doc.categories = doc.categories.filter(c => c.key !== delKey);
+        activeTagManagerCat = (doc.categories[0] && doc.categories[0].key) || 'audience';
+        _markTagDocDirty();
         renderTagManagerTabs();
         renderTagManagerCatEdit();
         renderTagManagerList();
         renderCanvas();
-        toast(`已刪除類別「${label}」`, 'success');
+        toast(`已刪除類別「${label}」（尚未儲存到伺服器）`, 'success');
     });
     document.getElementById('tag-add-btn').addEventListener('click', () => {
+        if (_isViewerReadonly()) return;
         const name = document.getElementById('tag-add-name').value.trim();
         const color = document.getElementById('tag-add-color').value;
         if (!name) { toast('請輸入標籤名稱', 'warning'); return; }
-        if (!projectData.tagLibrary[activeTagManagerCat]) projectData.tagLibrary[activeTagManagerCat] = [];
-        projectData.tagLibrary[activeTagManagerCat].push({ id: 't' + (tagIdCounter++), name, color });
+        const lib = getTagLibrary();
+        if (!Array.isArray(lib[activeTagManagerCat])) lib[activeTagManagerCat] = [];
+        lib[activeTagManagerCat].push({ id: nextTagId(), name, color });
         document.getElementById('tag-add-name').value = '';
-        renderTagManagerList(); scheduleSaveDraft();
+        _markTagDocDirty();
+        renderTagManagerList();
     });
     document.getElementById('tag-manager-close').addEventListener('click', () => {
+        if (tagLibraryDocDirty && isOwnerMode()) {
+            if (!confirm('有尚未儲存到伺服器的標籤變更，確定關閉？\n變更會留在本機快取中，下次開啟此 Modal 仍會看到。')) return;
+        }
         document.getElementById('tag-manager-overlay').style.display = 'none';
         renderCanvas();
         if (selectedComponentId) {
@@ -3908,44 +4170,136 @@ function setupTagManagerModal() {
         if (e.target.id === 'tag-manager-overlay') document.getElementById('tag-manager-close').click();
     });
 }
+
 function renderTagManagerList() {
     const list = document.getElementById('tag-manager-list');
     const cat = activeTagManagerCat;
-    const tags = projectData.tagLibrary[cat] || [];
+    const lib = getTagLibrary();
+    const tags = lib[cat] || [];
+    const readonly = _isViewerReadonly();
     list.innerHTML = '';
+    // 新增列的啟用狀態
+    const addName = document.getElementById('tag-add-name');
+    const addColor = document.getElementById('tag-add-color');
+    const addBtn = document.getElementById('tag-add-btn');
+    if (addName) addName.disabled = readonly;
+    if (addColor) addColor.disabled = readonly;
+    if (addBtn) {
+        addBtn.disabled = readonly;
+        addBtn.title = readonly ? '訪客模式：標籤庫為唯讀' : '';
+    }
     if (tags.length === 0) {
-        list.innerHTML = '<div style="text-align:center;padding:30px 0;color:var(--text-muted);">尚無標籤，請新增</div>';
+        list.innerHTML = '<div style="text-align:center;padding:30px 0;color:var(--text-muted);">尚無標籤' + (readonly ? '' : '，請新增') + '</div>';
         return;
     }
     tags.forEach((tag, idx) => {
         const item = document.createElement('div');
         item.className = 'tag-manager-item';
-        item.innerHTML = `<input type="color" value="${tag.color}"><input type="text" value="${escapeAttr(tag.name)}"><button class="delete-btn" title="刪除">✕</button>`;
+        item.innerHTML = `<input type="color" value="${tag.color}"${readonly ? ' disabled' : ''}><input type="text" value="${escapeAttr(tag.name)}"${readonly ? ' disabled' : ''}><button class="delete-btn" title="刪除"${readonly ? ' disabled' : ''}>✕</button>`;
         const colorIn = item.querySelector('input[type="color"]');
         const nameIn = item.querySelector('input[type="text"]');
         const delBtn = item.querySelector('.delete-btn');
-        colorIn.addEventListener('input', () => { tag.color = colorIn.value; scheduleSaveDraft(); });
-        nameIn.addEventListener('input', () => { tag.name = nameIn.value; scheduleSaveDraft(); });
-        delBtn.addEventListener('click', () => {
-            if (!confirm(`刪除標籤「${tag.name}」？\n所有已勾選此標籤的卡片與班名也會自動移除。`)) return;
-            projectData.components.forEach(c => {
-                if (c.type === 'course-category') {
-                    if (c.props.assignedTags && c.props.assignedTags[cat]) {
-                        c.props.assignedTags[cat] = c.props.assignedTags[cat].filter(id => id !== tag.id);
-                    }
-                    (c.props.classes || []).forEach(cl => {
-                        if (cl.tags && Array.isArray(cl.tags[cat])) {
-                            cl.tags[cat] = cl.tags[cat].filter(name => name !== tag.name);
-                        }
-                    });
-                }
-                if (c.type === 'tag' && c.props.tagId === tag.id) c.props.tagId = null;
+        if (!readonly) {
+            colorIn.addEventListener('input', () => { tag.color = colorIn.value; _markTagDocDirty(); });
+            nameIn.addEventListener('input', () => { tag.name = nameIn.value; _markTagDocDirty(); });
+            delBtn.addEventListener('click', () => {
+                if (!confirm(`刪除標籤「${tag.name}」？\n本機所有引用此標籤名稱的卡片與班名會被視為「已停用」。`)) return;
+                tags.splice(idx, 1);
+                _markTagDocDirty();
+                renderTagManagerList();
+                renderCanvas();
             });
-            tags.splice(idx, 1);
-            renderTagManagerList(); scheduleSaveDraft();
-        });
+        }
         list.appendChild(item);
     });
+}
+
+// ============================================================
+// 標籤庫存檔 / 重設 / 下載 / 重新載入（owner 操作）
+// ============================================================
+async function handleTagDocSave() {
+    if (!isOwnerMode()) { toast('尚未設定 GitHub PAT', 'warning'); return; }
+    if (!tagLibraryDocDirty) { toast('沒有需要儲存的變更', 'info'); return; }
+    const btn = document.getElementById('tag-doc-save');
+    if (btn) { btn.disabled = true; btn.textContent = '儲存中…'; }
+    try {
+        const newDoc = await commitTagLibraryDocToGitHub();
+        tagLibraryDocDirty = false;
+        toast(`已儲存到伺服器（revision ${newDoc.revision}）`, 'success');
+    } catch (e) {
+        console.error(e);
+        toast('儲存失敗：' + e.message, 'error');
+    } finally {
+        renderTagManagerStatus();
+    }
+}
+
+async function handleTagDocReload() {
+    if (tagLibraryDocDirty && !confirm('重新載入會放棄目前未儲存的變更，確定？')) return;
+    const result = await loadTagLibraryDoc();
+    tagLibraryDocDirty = false;
+    renderTagManagerStatus();
+    renderTagManagerTabs();
+    renderTagManagerCatEdit();
+    renderTagManagerList();
+    renderCanvas();
+    toast(`已重新載入（來源：${result.source}, revision ${result.doc.revision}）`, 'success');
+}
+
+function handleTagDocResetToDefault() {
+    if (!confirm('把標籤庫重設為原廠預設（A–E 5 類）？\n此操作只改變本機暫存，按下「儲存到伺服器」才會生效。')) return;
+    const def = buildDefaultTagLibraryDoc();
+    const doc = getTagLibraryDoc();
+    // 保留 revision 計數，但內容換成預設
+    def.revision = doc.revision;
+    window.tagLibraryDoc = def;
+    activeTagManagerCat = 'audience';
+    _markTagDocDirty();
+    renderTagManagerTabs();
+    renderTagManagerCatEdit();
+    renderTagManagerList();
+    renderCanvas();
+}
+
+function handleTagDocDownload() {
+    const doc = JSON.parse(JSON.stringify(getTagLibraryDoc()));
+    doc.schemaVersion = TAG_LIBRARY_DOC_SCHEMA_VERSION;
+    doc.updatedAt = new Date().toISOString();
+    const blob = new Blob([JSON.stringify(doc, null, 2) + '\n'], { type: 'application/json;charset=utf-8' });
+    downloadBlob(blob, 'tags.json');
+    toast('已下載 tags.json（請手動 commit 到 repo 的 data/tags.json）', 'success');
+}
+
+// ============================================================
+// Owner PAT 設定
+// ============================================================
+function openOwnerPATSetup() {
+    const cur = getStoredPAT();
+    const msg = `設定 GitHub Fine-grained PAT 以啟用維護者模式（編輯標籤庫）。
+
+說明：
+1. 請到 GitHub Settings → Developer settings → Personal access tokens → Fine-grained tokens 產生新權杖
+2. Repository access：只授權給 ${GITHUB_REPO_INFO.owner}/${GITHUB_REPO_INFO.repo}
+3. Permissions → Repository permissions → Contents：Read and write
+4. 將權杖貼到下方欄位
+
+⚠ PAT 會以明文存於本瀏覽器 localStorage；請只在自己機器使用。
+留空可清除 PAT。
+
+目前狀態：${cur ? '已設定（' + cur.slice(0, 4) + '…' + cur.slice(-4) + '）' : '未設定'}`;
+    const token = prompt(msg, '');
+    if (token === null) return; // 使用者取消
+    const trimmed = token.trim();
+    setStoredPAT(trimmed);
+    if (trimmed) {
+        toast('PAT 已儲存 — 已進入維護者模式', 'success');
+    } else {
+        toast('PAT 已清除 — 已回到訪客模式', 'info');
+    }
+    renderTagManagerStatus();
+    renderTagManagerTabs();
+    renderTagManagerCatEdit();
+    renderTagManagerList();
 }
 
 // ============================================================
@@ -4079,7 +4433,7 @@ function populateTagPicker() {
         const title = document.createElement('div'); title.className = 'tag-picker-cat-title'; title.textContent = getCategoryLabel(cat);
         wrap.appendChild(title);
         const row = document.createElement('div'); row.className = 'tag-picker-row';
-        const tags = projectData.tagLibrary[cat] || [];
+        const tags = getTagLibrary()[cat] || [];
         if (tags.length === 0) { const e = document.createElement('div'); e.style.color = 'var(--text-muted)'; e.style.fontSize = '12px'; e.textContent = '（尚無）'; row.appendChild(e); }
         tags.forEach(tag => {
             const chip = document.createElement('span'); chip.className = 'tag-picker-chip';
@@ -4653,7 +5007,18 @@ function smartLayoutBranch(rootId) {
 // ============================================================
 function openAISettings() {
     renderAIProviders();
+    renderOwnerPATStatus();
     document.getElementById('ai-settings-overlay').style.display = 'flex';
+}
+function renderOwnerPATStatus() {
+    const el = document.getElementById('owner-pat-status');
+    if (!el) return;
+    const cur = getStoredPAT();
+    if (cur) {
+        el.innerHTML = `<span style="color:var(--success);font-weight:600;">✏ 已啟用維護者模式</span> · <code>${escapeHtml(cur.slice(0, 4))}…${escapeHtml(cur.slice(-4))}</code> · 寫入目標 <code>${escapeHtml(GITHUB_REPO_INFO.owner)}/${escapeHtml(GITHUB_REPO_INFO.repo)}</code>`;
+    } else {
+        el.innerHTML = `<span style="color:var(--text-muted);">🔒 訪客模式（未設定 PAT）</span>`;
+    }
 }
 function setupAISettingsModal() {
     document.getElementById('btn-ai-settings-close').addEventListener('click', () => document.getElementById('ai-settings-overlay').style.display = 'none');
@@ -4668,6 +5033,40 @@ function setupAISettingsModal() {
         await AppStorage.clearApiKeys();
         toast('已清除', 'success');
         renderAIProviders();
+    });
+    // Owner PAT 設定（標籤庫寫入權限）
+    const patSetup = document.getElementById('btn-owner-pat-setup');
+    if (patSetup) patSetup.addEventListener('click', () => {
+        openOwnerPATSetup();
+        renderOwnerPATStatus();
+    });
+    const patTest = document.getElementById('btn-owner-pat-test');
+    if (patTest) patTest.addEventListener('click', async () => {
+        const cur = getStoredPAT();
+        if (!cur) { toast('尚未設定 PAT', 'warning'); return; }
+        patTest.disabled = true;
+        const origText = patTest.textContent;
+        patTest.textContent = '測試中…';
+        try {
+            const r = await ghApiContentsGet();
+            if (r.sha) {
+                toast(`✅ PAT 有效，可讀取 data/tags.json（sha ${r.sha.slice(0, 7)}…）`, 'success');
+            } else {
+                toast('⚠ PAT 有效，但 repo 內尚無 data/tags.json（首次儲存時會建立）', 'info');
+            }
+        } catch (e) {
+            toast('❌ 測試失敗：' + e.message, 'error');
+        } finally {
+            patTest.disabled = false;
+            patTest.textContent = origText;
+        }
+    });
+    const patClear = document.getElementById('btn-owner-pat-clear');
+    if (patClear) patClear.addEventListener('click', () => {
+        if (!confirm('清除 GitHub PAT？\n清除後將退回訪客模式（無法寫入標籤庫）。')) return;
+        setStoredPAT('');
+        toast('PAT 已清除', 'info');
+        renderOwnerPATStatus();
     });
 }
 async function renderAIProviders() {
@@ -5361,17 +5760,18 @@ async function startAIClassify() {
         const categoryLabels = {};
         getAllCategoryKeys().forEach(k => { categoryLabels[k] = getCategoryLabel(k); });
 
+        const liveTagLibrary = getTagLibrary();
         let r;
         if (mode === 'classify') {
             r = await AppAI.classifyClasses(
                 uploadState.classNames, subject, userPrompt, providerId, model,
-                projectData.tagLibrary, { signal: controller.signal, categoryLabels }
+                liveTagLibrary, { signal: controller.signal, categoryLabels }
             );
         } else {
             // scaffold-empty 或 scaffold-inspired
             const inspirationNames = mode === 'scaffold-inspired' ? uploadState.classNames : [];
             r = await AppAI.buildScaffold(
-                subject, userPrompt, providerId, model, projectData.tagLibrary,
+                subject, userPrompt, providerId, model, liveTagLibrary,
                 {
                     signal: controller.signal,
                     minMain, maxMain, minSub, maxSub,
@@ -5799,10 +6199,11 @@ function editorBuildFilterPanel() {
     if (!body || !projectData) return;
     body.innerHTML = '';
     // 計算 usage：班名層 + 卡片層 assignedTags 都列入計次
+    const lib = getTagLibrary();
     const usage = {};
     getAllCategoryKeys().forEach(cat => {
         usage[cat] = {};
-        (projectData.tagLibrary[cat] || []).forEach(t => { usage[cat][t.name] = 0; });
+        (lib[cat] || []).forEach(t => { usage[cat][t.name] = 0; });
         projectData.components.forEach(c => {
             if (c.type !== 'course-category') return;
             // 班名層 (cl.tags[cat]：以 tag「名稱」存放)
@@ -5824,7 +6225,7 @@ function editorBuildFilterPanel() {
     });
     // 顯示全部已定義的類別與標籤（自訂類別即使尚未被任何班名使用也會顯示）
     getAllCategoryKeys().forEach(cat => {
-        const tags = (projectData.tagLibrary[cat] || []);
+        const tags = (lib[cat] || []);
         if (tags.length === 0) return;
         const sec = document.createElement('div');
         sec.className = 'filter-section';
@@ -6075,11 +6476,12 @@ function buildEditorVisibleCardTree(visibleCards, classMatchMap) {
 // 為單張類別卡片產生 assignedTags chips HTML（命中目前篩選的會高亮）
 function renderEditorCardTagChips(card) {
     const at = card.props.assignedTags || {};
+    const lib = getTagLibrary();
     const chips = [];
     getAllCategoryKeys().forEach(cat => {
         const ids = at[cat] || [];
         ids.forEach(tagId => {
-            const t = (projectData.tagLibrary[cat] || []).find(x => x.id === tagId);
+            const t = (lib[cat] || []).find(x => x.id === tagId);
             if (!t) return;
             const isActiveHit = (editorActiveFilters[cat] || []).indexOf(t.name) >= 0;
             const color = t.color || '#94a3b8';
@@ -6093,15 +6495,20 @@ function renderEditorCardTagChips(card) {
 
 // 為班名產生 tags chips（命中目前篩選的會高亮）
 function renderEditorClassTagChips(cl) {
+    const lib = getTagLibrary();
     const chips = [];
     getAllCategoryKeys().forEach(cat => {
         (cl.tags && cl.tags[cat] || []).forEach(name => {
-            const t = (projectData.tagLibrary[cat] || []).find(x => x.name === name);
+            const t = (lib[cat] || []).find(x => x.name === name);
             const isActiveHit = (editorActiveFilters[cat] || []).indexOf(name) >= 0;
+            // 庫內不存在 → 灰色 + 刪除線 + 「已停用」徽章標示
+            const isOrphan = !t;
             const color = t ? t.color : '#94a3b8';
-            const opacity = isActiveHit ? '1' : '0.55';
+            const opacity = isActiveHit ? '1' : (isOrphan ? '0.4' : '0.55');
             const ring = isActiveHit ? 'box-shadow:0 0 0 2px rgba(99,102,241,0.35);' : '';
-            chips.push('<span style="display:inline-block;padding:1px 7px;border-radius:999px;background:' + color + ';color:#fff;font-size:10px;font-weight:600;opacity:' + opacity + ';margin:2px 3px 0 0;' + ring + '">' + escapeHtml(name) + '</span>');
+            const deco = isOrphan ? 'text-decoration:line-through;' : '';
+            const orphanMark = isOrphan ? '<span style="margin-right:2px;opacity:0.85;">⚠</span>' : '';
+            chips.push('<span title="' + (isOrphan ? '此標籤已不在伺服器標籤庫中' : '') + '" style="display:inline-block;padding:1px 7px;border-radius:999px;background:' + color + ';color:#fff;font-size:10px;font-weight:600;opacity:' + opacity + ';margin:2px 3px 0 0;' + ring + deco + '">' + orphanMark + escapeHtml(name) + '</span>');
         });
     });
     return chips.length ? ('<div style="margin-top:3px;">' + chips.join('') + '</div>') : '';
@@ -6150,9 +6557,10 @@ function openEditorFilterResultsModal() {
     h += '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12px;">';
     h += '<span style="color:var(--text-muted);">套用的篩選：</span>';
     let activeCount = 0;
+    const _libFR = getTagLibrary();
     getAllCategoryKeys().forEach(cat => {
         (editorActiveFilters[cat] || []).forEach(tagName => {
-            const t = (projectData.tagLibrary[cat] || []).find(x => x.name === tagName);
+            const t = (_libFR[cat] || []).find(x => x.name === tagName);
             const color = t ? t.color : '#94a3b8';
             h += '<span style="display:inline-flex;align-items:center;gap:3px;padding:3px 10px;border-radius:999px;background:' + color + ';color:#fff;font-weight:600;font-size:11px;box-shadow:0 1px 2px rgba(0,0,0,0.15);">';
             h += '<span style="opacity:0.85;font-size:10px;">' + escapeHtml(getCategoryLabel(cat)) + '</span>';
@@ -6548,7 +6956,7 @@ function renderClassEditTags() {
         const lbl = document.createElement('div'); lbl.className = 'tag-checker-cat-label'; lbl.textContent = getCategoryLabel(cat);
         catWrap.appendChild(lbl);
         const row = document.createElement('div'); row.className = 'tag-checker-row';
-        const lib = projectData.tagLibrary[cat] || [];
+        const lib = getTagLibrary()[cat] || [];
         lib.forEach(tag => {
             const chip = document.createElement('span'); chip.className = 'tag-checker-chip';
             chip.textContent = tag.name; chip.style.background = tag.color;
@@ -6642,11 +7050,61 @@ function handleExport(kind) {
     else if (kind === 'env')  exportEnv();
 }
 
+// 為當前分類圖計算「實際使用到的 tag」快照（含 label + color），供 .ccrd 攜帶用
+function buildDiagramTagSnapshot(pd) {
+    const out = { schemaVersion: TAG_LIBRARY_DOC_SCHEMA_VERSION, categories: [], tagLibrary: {} };
+    if (!pd) return out;
+    const usedNamesByCat = {};   // cat -> Set<name>
+    const usedIdsByCat = {};     // cat -> Set<id>
+    (pd.components || []).forEach(c => {
+        if (c.type !== 'course-category') return;
+        const at = (c.props && c.props.assignedTags) || {};
+        Object.keys(at).forEach(cat => {
+            usedIdsByCat[cat] = usedIdsByCat[cat] || new Set();
+            (at[cat] || []).forEach(id => usedIdsByCat[cat].add(id));
+        });
+        (c.props && c.props.classes || []).forEach(cl => {
+            if (!cl.tags) return;
+            Object.keys(cl.tags).forEach(cat => {
+                usedNamesByCat[cat] = usedNamesByCat[cat] || new Set();
+                (cl.tags[cat] || []).forEach(n => usedNamesByCat[cat].add(n));
+            });
+        });
+        if (c.props && c.props.tagCategory) {
+            const cat = c.props.tagCategory;
+            if (c.props.tagId) {
+                usedIdsByCat[cat] = usedIdsByCat[cat] || new Set();
+                usedIdsByCat[cat].add(c.props.tagId);
+            }
+            if (c.props.name) {
+                usedNamesByCat[cat] = usedNamesByCat[cat] || new Set();
+                usedNamesByCat[cat].add(c.props.name);
+            }
+        }
+    });
+    const lib = getTagLibrary();
+    const cats = getCategories();
+    const usedCats = new Set([...Object.keys(usedNamesByCat), ...Object.keys(usedIdsByCat)]);
+    cats.forEach((c, idx) => {
+        if (!usedCats.has(c.key)) return;
+        out.categories.push({ key: c.key, label: c.label, order: idx });
+        const ids = usedIdsByCat[c.key] || new Set();
+        const names = usedNamesByCat[c.key] || new Set();
+        out.tagLibrary[c.key] = (lib[c.key] || []).filter(t => ids.has(t.id) || names.has(t.name)).map(t => ({
+            id: t.id, name: t.name, color: t.color
+        }));
+    });
+    return out;
+}
+
 async function exportCCRD() {
     try {
         const zip = new JSZip();
         const data = JSON.parse(JSON.stringify(projectData));
         delete data.assets; // assets 另存
+        // 移除 deprecated 欄位；加上「本圖實際用到的 tag 快照」，供攜帶到無網路環境時做顏色 fallback
+        stripDeprecatedTagFields(data);
+        data.tagSnapshot = buildDiagramTagSnapshot(projectData);
         zip.file('project.json', JSON.stringify(data, null, 2));
         const af = zip.folder('assets');
         Object.keys(assets).forEach(id => {
@@ -6817,8 +7275,11 @@ function exportMarkdown() {
 
 async function exportHTML() {
     try {
-        const safeProject = JSON.stringify(projectData).replace(/<\/script>/gi, '<\\/script>').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+        // 移除 deprecated 標籤欄位後再 serialize；標籤庫在此處 inline 為 EMBEDDED_TAG_DOC 供離線使用
+        const cleanProject = stripDeprecatedTagFields(JSON.parse(JSON.stringify(projectData)));
+        const safeProject = JSON.stringify(cleanProject).replace(/<\/script>/gi, '<\\/script>').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
         const safeAssets = JSON.stringify(assets).replace(/<\/script>/gi, '<\\/script>').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+        const safeTagDoc = JSON.stringify(getTagLibraryDoc()).replace(/<\/script>/gi, '<\\/script>').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
         let css = '';
         try { const r = await fetch('app.css'); if (r.ok) css = await r.text(); } catch (e) {}
         // 把 dot.png / dots.png 轉成 base64 data URI 內嵌（讓匯出的 HTML 可獨立執行不依賴 assets/）
@@ -7312,7 +7773,7 @@ body.fullscreen-mode.fs-pen-active .fs-color-swatches { display: inline-flex; }
     <span>按住 <b>Space</b> + 滑鼠拖曳，或 <b>滑鼠中鍵</b> 可平移畫布</span>
     <button class="vw-hint-close" type="button" aria-label="關閉提示">✕</button>
 </div>
-<script>window.EMBEDDED_PROJECT=${safeProject};window.EMBEDDED_ASSETS=${safeAssets};window.EMBEDDED_VIEW_MODE=${JSON.stringify(currentViewMode)};window.__viewerDotSrc=${JSON.stringify(dotDataURI)};window.__viewerDotsSrc=${JSON.stringify(dotsDataURI)};${viewerScript}</script>
+<script>window.EMBEDDED_PROJECT=${safeProject};window.EMBEDDED_ASSETS=${safeAssets};window.EMBEDDED_TAG_DOC=${safeTagDoc};window.EMBEDDED_VIEW_MODE=${JSON.stringify(currentViewMode)};window.__viewerDotSrc=${JSON.stringify(dotDataURI)};window.__viewerDotsSrc=${JSON.stringify(dotsDataURI)};${viewerScript}</script>
 </body></html>`;
         const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
         downloadBlob(blob, (projectData.name || 'diagram') + '.html');
@@ -7324,21 +7785,18 @@ function buildViewerScript() {
     return `(function(){
     const projectData = window.EMBEDDED_PROJECT;
     const assets = window.EMBEDDED_ASSETS;
+    // 離線檢視器專用：標籤庫快照（匯出時 inline，永遠唯讀）
+    const _tagDoc = window.EMBEDDED_TAG_DOC || { categories: [], tagLibrary: {} };
+    const _tagLib = _tagDoc.tagLibrary || {};
+    // 兼容某些舊路徑：把 projectData.tagLibrary 指向同一個 ref，避免一一改寫
+    if (!projectData.tagLibrary) projectData.tagLibrary = _tagLib;
     let viewportZoom = 1;
     let currentViewMode = (window.EMBEDDED_VIEW_MODE === 'skeleton') ? 'skeleton' : 'full';
-    // 內建 5 類 + 自訂類別合併
-    const TAG_CATEGORY_KEYS = ${JSON.stringify(getAllCategoryKeys())};
+    // 7 類完全對稱：類別清單從 EMBEDDED_TAG_DOC 取
+    const TAG_CATEGORY_KEYS = (_tagDoc.categories || []).map(c => c.key);
     const TAG_CATEGORY_LABELS = (function(){
         const labels = {};
-        TAG_CATEGORY_KEYS.forEach(k => {
-            const builtinLabels = ${JSON.stringify(TAG_CATEGORY_LABELS)};
-            const builtinOverride = (projectData && projectData.builtinCategoryLabels) || {};
-            if (builtinLabels[k]) labels[k] = builtinOverride[k] || builtinLabels[k];
-            else {
-                const c = ((projectData && projectData.customTagCategories) || []).find(x => x.key === k);
-                labels[k] = c ? c.label : k;
-            }
-        });
+        (_tagDoc.categories || []).forEach(c => { labels[c.key] = c.label || c.key; });
         return labels;
     })();
 
@@ -7348,7 +7806,7 @@ function buildViewerScript() {
     let filteredView = null; // { visibleCardIds:Set, classMatches:Object<id, Class[]>, totalClasses, matchedClasses }
     // 篩選統計列「眼睛」圖示
     const FILTER_STATS_EYE_SVG = '<svg class="filter-stats-eye" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M2.5 12s3.5-7 9.5-7 9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8"/></svg>';
-    function findTagById(cat, id){ if(!projectData.tagLibrary[cat]) return null; return projectData.tagLibrary[cat].find(t=>t.id===id); }
+    function findTagById(cat, id){ if(!_tagLib[cat]) return null; return _tagLib[cat].find(t=>t.id===id); }
     function escapeHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
     function escapeAttr(s){ return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
     function applyBoard(){
@@ -8852,12 +9310,18 @@ function buildViewerScript() {
 async function exportEnv() {
     try {
         const diagrams = await AppStorage.listDiagrams();
+        // v3.2：完整環境 JSON 不再攜帶標籤資料（標籤庫是中央 data/tags.json）
+        // 把每張圖內的 deprecated 欄位（tagLibrary / customTagCategories / builtinCategoryLabels）拋掉，
+        // 移植到新裝置後由前端自動 fetch ./data/tags.json 取得最新標籤庫。
+        const cleanDiagrams = diagrams.map(d => stripDeprecatedTagFields(JSON.parse(JSON.stringify(d))));
         const apiKeys = await AppStorage.listApiKeys();
+        const tagDoc = getTagLibraryDoc();
         const env = {
             type: 'CourseCategoryRelationshipDiagramEnv',
             exportedAt: new Date().toISOString(),
-            version: '3.0',
-            diagrams,
+            version: '3.2',
+            tagLibraryRevisionRef: tagDoc.revision || 0,   // 紀錄匯出當下對齊到的 tags.json revision（不含實際資料）
+            diagrams: cleanDiagrams,
             apiKeys,
             settings: {
                 theme: AppStorage.Settings.getTheme(),
@@ -8869,7 +9333,7 @@ async function exportEnv() {
         };
         const blob = new Blob([JSON.stringify(env, null, 2)], { type: 'application/json;charset=utf-8' });
         downloadBlob(blob, `course-category-env-${new Date().toISOString().slice(0, 10)}.json`);
-        toast('已匯出完整環境（含加密 API Keys）', 'success');
+        toast('已匯出完整環境（不含標籤資料；標籤庫請從伺服器取得）', 'success');
     } catch (err) { console.error(err); toast('匯出失敗：' + err.message, 'error'); }
 }
 
@@ -8930,6 +9394,8 @@ async function importDiagramJson(data) {
     // 確保結構
     if (!data.id) data.id = AppStorage.generateUUID();
     if (!data.assets) data.assets = {};
+    // .ccrd / 單張圖匯入：拋除 deprecated 欄位（tagLibrary 等），保留 tagSnapshot 作 fallback
+    stripDeprecatedTagFields(data);
     const existing = await AppStorage.getDiagram(data.id);
     if (existing) {
         importPendingPayload = { kind: 'diagram', data };
@@ -8971,9 +9437,13 @@ function setupImportConflictModal() {
 }
 
 async function importEnv(env) {
-    if (!confirm(`即將匯入完整環境（含 ${env.diagrams.length} 張分類圖、${env.apiKeys.length} 把 API Key）。\n會疊加到目前資料庫，相同 ID 視為衝突逐一詢問。是否繼續？`)) return;
+    const diagCount = (env.diagrams || []).length;
+    const keyCount = (env.apiKeys || []).length;
+    if (!confirm(`即將匯入完整環境（含 ${diagCount} 張分類圖、${keyCount} 把 API Key）。\n會疊加到目前資料庫，相同 ID 視為衝突逐一詢問。是否繼續？\n\n注意：v3.2 起的 env JSON 不含標籤資料，標籤庫請至本網站線上版自動同步。`)) return;
     let imported = 0, skipped = 0;
-    for (const d of env.diagrams) {
+    for (const d of (env.diagrams || [])) {
+        // 為了安全，移除任何可能殘留的 deprecated 欄位
+        stripDeprecatedTagFields(d);
         const existing = await AppStorage.getDiagram(d.id);
         if (existing) {
             const action = prompt(`分類圖「${d.name}」已存在。輸入：\n  o = 覆蓋\n  n = 另存新檔\n  s = 略過`, 's');
@@ -8995,6 +9465,13 @@ async function importEnv(env) {
         if (env.settings.layout) AppStorage.Settings.setLayout(env.settings.layout);
         if (env.settings.aiModel) AppStorage.Settings.setAIModel(env.settings.aiModel);
     }
+    // 匯入後重新 fetch 一次標籤庫，確保已對齊伺服器最新版（不阻斷 toast）
+    try {
+        const r = await loadTagLibraryDoc();
+        if (env.tagLibraryRevisionRef && r.doc.revision < env.tagLibraryRevisionRef) {
+            toast(`提示：env 紀錄的 tagLibrary revision 為 ${env.tagLibraryRevisionRef}，但伺服器目前為 ${r.doc.revision}。可能需要聯絡維護者確認。`, 'warning');
+        }
+    } catch (e) { /* ignore */ }
     toast(`環境匯入完成：${imported} 張匯入 / ${skipped} 張略過`, 'success');
 }
 

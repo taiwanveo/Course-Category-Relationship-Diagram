@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 2,
+  "revision": 1,
+  "updatedAt": "2026-05-11T00:00:00.000Z",
+  "categories": [
+    { "key": "audience",  "label": "A. 對象", "order": 0 },
+    { "key": "level",     "label": "B. 等級", "order": 1 },
+    { "key": "attribute", "label": "C. 屬性", "order": 2 },
+    { "key": "topic",     "label": "D. 主題", "order": 3 },
+    { "key": "format",    "label": "E. 形式", "order": 4 }
+  ],
+  "tagLibrary": {
+    "audience": [
+      { "id": "t1",  "name": "全員", "color": "#64748b" },
+      { "id": "t2",  "name": "主管", "color": "#8b5cf6" },
+      { "id": "t3",  "name": "非IT", "color": "#0ea5e9" },
+      { "id": "t4",  "name": "行政", "color": "#06b6d4" },
+      { "id": "t5",  "name": "人資", "color": "#14b8a6" },
+      { "id": "t6",  "name": "業務", "color": "#10b981" },
+      { "id": "t7",  "name": "IT",   "color": "#3b82f6" },
+      { "id": "t8",  "name": "開發", "color": "#6366f1" },
+      { "id": "t9",  "name": "維運", "color": "#a855f7" },
+      { "id": "t10", "name": "架構", "color": "#d946ef" }
+    ],
+    "level": [
+      { "id": "t11", "name": "基礎 ★",     "color": "#22c55e" },
+      { "id": "t12", "name": "進階 ★★",   "color": "#f59e0b" },
+      { "id": "t13", "name": "專業 ★★★", "color": "#ef4444" }
+    ],
+    "attribute": [
+      { "id": "t14", "name": "善（會用）",   "color": "#06b6d4" },
+      { "id": "t15", "name": "用（流程化）", "color": "#3b82f6" },
+      { "id": "t16", "name": "管（治理）",   "color": "#8b5cf6" },
+      { "id": "t17", "name": "造（創新）",   "color": "#ec4899" }
+    ],
+    "topic": [
+      { "id": "t18", "name": "生成式 AI",   "color": "#3b82f6" },
+      { "id": "t19", "name": "提示工程",   "color": "#6366f1" },
+      { "id": "t20", "name": "RAG/知識庫", "color": "#8b5cf6" },
+      { "id": "t21", "name": "Agent",      "color": "#a855f7" },
+      { "id": "t22", "name": "流程自動化", "color": "#06b6d4" },
+      { "id": "t23", "name": "資料治理",   "color": "#0ea5e9" },
+      { "id": "t24", "name": "雲端 AI",    "color": "#0e7490" },
+      { "id": "t25", "name": "資安合規",   "color": "#dc2626" }
+    ],
+    "format": [
+      { "id": "t26", "name": "一般課程", "color": "#10b981" },
+      { "id": "t27", "name": "工作坊",   "color": "#f59e0b" },
+      { "id": "t28", "name": "研討會",   "color": "#0ea5e9" },
+      { "id": "t29", "name": "證照",     "color": "#dc2626" }
+    ]
+  }
+}
