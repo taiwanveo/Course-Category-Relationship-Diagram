@@ -142,6 +142,27 @@ function buildDefaultTagLibraryDoc() {
     };
 }
 
+// 深拷貝 tagLibrary，並補齊 id / name / color（避免淺拷貝導致多處共用參考、或缺色造成 UI 飄掉）
+function cloneTagLibraryDeep(tagLib) {
+    const out = {};
+    if (!tagLib || typeof tagLib !== 'object') return out;
+    Object.keys(tagLib).forEach(cat => {
+        const arr = tagLib[cat];
+        if (!Array.isArray(arr)) {
+            out[cat] = [];
+            return;
+        }
+        out[cat] = arr.map((t, idx) => {
+            const id = (t && t.id != null && String(t.id).trim()) ? String(t.id).trim() : ('t' + (idx + 1));
+            const name = (t && t.name != null) ? String(t.name) : '';
+            let color = (t && t.color != null) ? String(t.color).trim() : '';
+            if (!/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(color)) color = '#94a3b8';
+            return { id, name, color };
+        });
+    });
+    return out;
+}
+
 // 容錯：把任何輸入正規化成 schemaVersion 2 的對稱結構
 function normalizeTagLibraryDoc(raw) {
     const doc = (raw && typeof raw === 'object') ? raw : {};
@@ -149,8 +170,8 @@ function normalizeTagLibraryDoc(raw) {
         schemaVersion: TAG_LIBRARY_DOC_SCHEMA_VERSION,
         revision: typeof doc.revision === 'number' ? doc.revision : 0,
         updatedAt: doc.updatedAt || new Date().toISOString(),
-        categories: Array.isArray(doc.categories) ? doc.categories.slice() : [],
-        tagLibrary: (doc.tagLibrary && typeof doc.tagLibrary === 'object') ? doc.tagLibrary : {}
+        categories: Array.isArray(doc.categories) ? doc.categories.map(c => ({ ...c })) : [],
+        tagLibrary: cloneTagLibraryDeep(doc.tagLibrary)
     };
     // 舊 schema（v1：builtinCategoryLabels + customTagCategories）→ 合併成 categories 陣列
     if (out.categories.length === 0 && (doc.builtinCategoryLabels || doc.customTagCategories)) {
@@ -166,8 +187,8 @@ function normalizeTagLibraryDoc(raw) {
     if (out.categories.length === 0) {
         // 完全無資料 → 用預設
         const def = buildDefaultTagLibraryDoc();
-        out.categories = def.categories;
-        out.tagLibrary = def.tagLibrary;
+        out.categories = def.categories.map(c => ({ ...c }));
+        out.tagLibrary = cloneTagLibraryDeep(def.tagLibrary);
     }
     out.categories.forEach((c, i) => {
         if (typeof c.order !== 'number') c.order = i;
@@ -213,10 +234,24 @@ async function loadTagLibraryDoc(opts) {
 
     // ① 嘗試 fetch ./data/tags.json
     try {
-        const res = await fetch(TAGS_JSON_PATH + '?t=' + Date.now(), { cache: 'no-cache' });
+        const res = await fetch(TAGS_JSON_PATH + '?t=' + Date.now(), {
+            cache: 'no-store',
+            headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+        });
         if (res && res.ok) {
             const raw = await res.json();
-            const doc = normalizeTagLibraryDoc(raw);
+            let doc = normalizeTagLibraryDoc(raw);
+            // GitHub Pages CDN 偶爾會短暫回傳舊檔；若 IndexedDB 裡已有較高 revision，勿用舊內容覆蓋（一般開機載入）
+            // 「重新載入」forceFetch 時改以伺服器回應為準，不套用此防護，以免擋住使用者刻意放棄本機的快取
+            if (!forceFetch) {
+                try {
+                    const prev = await AppStorage.kvGet('tagLibraryCache');
+                    if (prev && typeof prev.revision === 'number' && typeof doc.revision === 'number' && prev.revision > doc.revision) {
+                        console.warn('[tags] 偵測到伺服器 tags.json revision（' + doc.revision + '）低於本機快取（' + prev.revision + '），視為 CDN 延遲，暫用本機較新版本');
+                        doc = normalizeTagLibraryDoc(prev);
+                    }
+                } catch (e) { /* ignore */ }
+            }
             window.tagLibraryDoc = doc;
             try { await AppStorage.kvSet('tagLibraryCache', doc); } catch (e) { /* ignore */ }
             // 強制重抓成功 → 清除 pending 旗標（使用者已選擇放棄本機 addon）
@@ -466,64 +501,92 @@ function utf8ToBase64(str) {
 async function ghApiContentsGet() {
     const repo = GITHUB_REPO_INFO;
     const pat = getStoredPAT();
-    const url = `https://api.github.com/repos/${repo.owner}/${repo.repo}/contents/${TAGS_JSON_PATH}?ref=${encodeURIComponent(repo.branch)}`;
+    // 附加 nonce 避免中介快取回傳舊 SHA（導致樂觀鎖誤判或寫入失敗）
+    const url = `https://api.github.com/repos/${repo.owner}/${repo.repo}/contents/${TAGS_JSON_PATH}?ref=${encodeURIComponent(repo.branch)}&_=${Date.now()}`;
     const headers = {
         'Accept': 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28'
+        'X-GitHub-Api-Version': '2022-11-28',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache'
     };
     if (pat) headers['Authorization'] = 'Bearer ' + pat;
-    const res = await fetch(url, { headers });
+    const res = await fetch(url, { headers, cache: 'no-store' });
     if (res.status === 404) return { sha: null, content: null };
     if (!res.ok) throw new Error('GitHub GET 失敗：HTTP ' + res.status);
     const body = await res.json();
     return { sha: body.sha || null, content: body.content || null };
 }
 
+// 避免使用者在「儲存中…」期間再觸發第二次 handleTagDocSave（否則會連續 commit 兩次、revision 連跳）
+let _tagDocSaveInProgress = false;
+
+// 標籤庫 GitHub commit 序列化：避免連點造成兩次 PUT 並行、同時 409 時自動重試
+let _tagCommitChain = Promise.resolve();
+function _enqueueTagCommit(fn) {
+    const p = _tagCommitChain.then(() => fn());
+    _tagCommitChain = p.then(() => {}).catch(() => {});
+    return p;
+}
+
 async function commitTagLibraryDocToGitHub(message) {
+    return _enqueueTagCommit(() => commitTagLibraryDocToGitHubCore(message));
+}
+
+async function commitTagLibraryDocToGitHubCore(message) {
     const pat = getStoredPAT();
     if (!pat) throw new Error('尚未設定 GitHub PAT（無寫入權限）');
     if (!window.tagLibraryDoc) throw new Error('無 tagLibraryDoc 可上傳');
     const repo = GITHUB_REPO_INFO;
-    // 1. 取目前 SHA（樂觀鎖）
-    const { sha } = await ghApiContentsGet();
-    // 2. 提升 revision / updatedAt
-    const doc = JSON.parse(JSON.stringify(window.tagLibraryDoc));
-    doc.schemaVersion = TAG_LIBRARY_DOC_SCHEMA_VERSION;
-    doc.revision = (typeof doc.revision === 'number' ? doc.revision : 0) + 1;
-    doc.updatedAt = new Date().toISOString();
-    // 3. 編碼 + PUT
-    const json = JSON.stringify(doc, null, 2) + '\n';
+    // 正規化後再上傳，避免淺拷貝 / 缺欄位造成 JSON 與記憶體不一致
+    const baseDoc = normalizeTagLibraryDoc(JSON.parse(JSON.stringify(window.tagLibraryDoc)));
+    const newRev = (typeof baseDoc.revision === 'number' ? baseDoc.revision : 0) + 1;
+    const docToSave = {
+        ...baseDoc,
+        schemaVersion: TAG_LIBRARY_DOC_SCHEMA_VERSION,
+        revision: newRev,
+        updatedAt: new Date().toISOString()
+    };
+    const json = JSON.stringify(docToSave, null, 2) + '\n';
     const content = utf8ToBase64(json);
     const url = `https://api.github.com/repos/${repo.owner}/${repo.repo}/contents/${TAGS_JSON_PATH}`;
-    const putBody = {
-        message: message || `chore(tags): update tag library (revision ${doc.revision})`,
-        content,
-        branch: repo.branch
-    };
-    if (sha) putBody.sha = sha;
-    const res = await fetch(url, {
-        method: 'PUT',
-        headers: {
-            'Authorization': 'Bearer ' + pat,
-            'Accept': 'application/vnd.github+json',
-            'X-GitHub-Api-Version': '2022-11-28',
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(putBody)
-    });
-    if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        if (res.status === 409 || res.status === 422) {
-            throw new Error('伺服器上有更新版本（樂觀鎖衝突）：請重新整理頁面取得最新版後再儲存。');
+    let lastErrText = '';
+    for (let attempt = 0; attempt < 5; attempt++) {
+        // 每次重試重新取 SHA（樂觀鎖）；內容與 revision 不變，只換遠端 blob 的 sha
+        const { sha } = await ghApiContentsGet();
+        const putBody = {
+            message: message || `chore(tags): update tag library (revision ${docToSave.revision})`,
+            content,
+            branch: repo.branch
+        };
+        if (sha) putBody.sha = sha;
+        const res = await fetch(url, {
+            method: 'PUT',
+            headers: {
+                'Authorization': 'Bearer ' + pat,
+                'Accept': 'application/vnd.github+json',
+                'X-GitHub-Api-Version': '2022-11-28',
+                'Content-Type': 'application/json',
+                'Cache-Control': 'no-cache'
+            },
+            body: JSON.stringify(putBody),
+            cache: 'no-store'
+        });
+        if (res.ok) {
+            window.tagLibraryDoc = normalizeTagLibraryDoc(docToSave);
+            try { await AppStorage.kvSet('tagLibraryCache', window.tagLibraryDoc); } catch (e) { /* ignore */ }
+            return window.tagLibraryDoc;
+        }
+        lastErrText = await res.text().catch(() => '');
+        if ((res.status === 409 || res.status === 422) && attempt < 4) {
+            await new Promise(r => setTimeout(r, 200 + attempt * 250));
+            continue;
         }
         if (res.status === 401 || res.status === 403) {
             throw new Error('PAT 無效或權限不足：請確認 fine-grained PAT 的 Contents: write 範圍只授權給 ' + repo.owner + '/' + repo.repo);
         }
-        throw new Error('GitHub commit 失敗：HTTP ' + res.status + ' — ' + text.slice(0, 200));
+        throw new Error('GitHub commit 失敗：HTTP ' + res.status + ' — ' + lastErrText.slice(0, 200));
     }
-    window.tagLibraryDoc = doc;
-    try { await AppStorage.kvSet('tagLibraryCache', doc); } catch (e) { /* ignore */ }
-    return doc;
+    throw new Error('伺服器上有更新版本（樂觀鎖衝突）：已自動重試仍失敗，請稍候再按「儲存到伺服器」或按「重新載入」。' + (lastErrText ? '\n' + lastErrText.slice(0, 120) : ''));
 }
 
 // 標籤名稱對齊：把 class.tags[cat] 中的「短名/別名」轉為 tagLibrary 上的正規名稱
@@ -4601,6 +4664,8 @@ function sortTagsInCategory(cat, mode) {
 async function handleTagDocSave() {
     if (!isOwnerMode()) { toast('尚未設定 GitHub PAT', 'warning'); return; }
     if (!tagLibraryDocDirty && !hasPendingTagAddon()) { toast('沒有需要儲存的變更', 'info'); return; }
+    if (_tagDocSaveInProgress) { toast('上一筆儲存尚未完成，請稍候…', 'info'); return; }
+    _tagDocSaveInProgress = true;
     const btn = document.getElementById('tag-doc-save');
     if (btn) { btn.disabled = true; btn.textContent = '儲存中…'; }
     try {
@@ -4612,6 +4677,7 @@ async function handleTagDocSave() {
         console.error(e);
         toast('儲存失敗：' + e.message, 'error');
     } finally {
+        _tagDocSaveInProgress = false;
         renderTagManagerStatus();
     }
 }
