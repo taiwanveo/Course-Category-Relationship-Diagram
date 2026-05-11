@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": 16,
-  "updatedAt": "2026-05-11T05:33:49.651Z",
+  "revision": 17,
+  "updatedAt": "2026-05-11T05:35:42.873Z",
   "categories": [
     {
       "key": "audience",
@@ -113,6 +113,16 @@
         "color": "#23be0e"
       },
       {
+        "id": "t39",
+        "name": "AI 教學與學習應用",
+        "color": "#7f8d1c"
+      },
+      {
+        "id": "t38",
+        "name": "產業 AI 應用",
+        "color": "#2e5408"
+      },
+      {
         "id": "t19",
         "name": "生成式AI",
         "color": "#73c1f2"
@@ -181,16 +191,6 @@
         "id": "t37",
         "name": "AI 治理與法遵",
         "color": "#765151"
-      },
-      {
-        "id": "t38",
-        "name": "產業 AI 應用",
-        "color": "#ff0505"
-      },
-      {
-        "id": "t39",
-        "name": "AI 教學與學習應用",
-        "color": "#ff0505"
       }
     ],
     "format": [
