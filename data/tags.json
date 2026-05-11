@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "revision": 15,
-  "updatedAt": "2026-05-11T05:26:58.647Z",
+  "updatedAt": "2026-05-11T05:32:02.477Z",
   "categories": [
     {
       "key": "audience",
@@ -108,44 +108,54 @@
         "color": "#00ff6e"
       },
       {
+        "id": "t41",
+        "name": "AI 趨勢與策略",
+        "color": "#23be0e"
+      },
+      {
         "id": "t19",
         "name": "生成式AI",
-        "color": "#6366f1"
-      },
-      {
-        "id": "t20",
-        "name": "提示工程",
-        "color": "#ae97e2"
-      },
-      {
-        "id": "t21",
-        "name": "AI 辦公應用",
-        "color": "#f39120"
-      },
-      {
-        "id": "t22",
-        "name": "多模態 AI",
-        "color": "#06b6d4"
+        "color": "#73c1f2"
       },
       {
         "id": "t23",
         "name": "RAG 與知識庫",
-        "color": "#0ea5e9"
+        "color": "#007ab3"
       },
       {
-        "id": "t24",
-        "name": "AI Agent",
-        "color": "#0e7490"
+        "id": "t22",
+        "name": "多模態 AI",
+        "color": "#8d6bdb"
       },
       {
-        "id": "t25",
-        "name": "流程自動化",
-        "color": "#b37305"
+        "id": "t20",
+        "name": "提示工程",
+        "color": "#5367fd"
       },
       {
         "id": "t32",
         "name": "AI 應用開發",
-        "color": "#ff0505"
+        "color": "#4cb9cd"
+      },
+      {
+        "id": "t24",
+        "name": "AI Agent",
+        "color": "#0d647d"
+      },
+      {
+        "id": "t21",
+        "name": "AI 辦公應用",
+        "color": "#ef952e"
+      },
+      {
+        "id": "t40",
+        "name": "AI 生產力工具",
+        "color": "#f14e09"
+      },
+      {
+        "id": "t25",
+        "name": "流程自動化",
+        "color": "#db6300"
       },
       {
         "id": "t33",
@@ -158,14 +168,9 @@
         "color": "#704d93"
       },
       {
-        "id": "t41",
-        "name": "AI 趨勢與策略",
-        "color": "#20ce09"
-      },
-      {
         "id": "t35",
         "name": "AI 維運與 LLMOps",
-        "color": "#a47cee"
+        "color": "#dc98ad"
       },
       {
         "id": "t36",
@@ -186,11 +191,6 @@
         "id": "t39",
         "name": "AI 教學與學習應用",
         "color": "#ff0505"
-      },
-      {
-        "id": "t40",
-        "name": "AI 生產力工具",
-        "color": "#f0c219"
       }
     ],
     "format": [
