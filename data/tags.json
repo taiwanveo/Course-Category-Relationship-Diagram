@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": 11,
-  "updatedAt": "2026-05-11T03:52:37.320Z",
+  "revision": 12,
+  "updatedAt": "2026-05-11T03:53:39.145Z",
   "categories": [
     {
       "key": "audience",
@@ -202,7 +202,7 @@
       {
         "id": "t27",
         "name": "工作坊",
-        "color": "#f59e0b"
+        "color": "#d28c14"
       },
       {
         "id": "t28",
@@ -212,14 +212,14 @@
       {
         "id": "t29",
         "name": "證照",
-        "color": "#c11a1a"
+        "color": "#c2195d"
       }
     ],
     "custom_mp0lq0evvx9": [
       {
         "id": "t30",
         "name": "課程主軸",
-        "color": "#ff0505"
+        "color": "#fbdc13"
       }
     ]
   }
