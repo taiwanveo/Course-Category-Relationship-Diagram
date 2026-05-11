@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": 5,
-  "updatedAt": "2026-05-11T03:02:37.789Z",
+  "revision": 6,
+  "updatedAt": "2026-05-11T03:20:05.752Z",
   "categories": [
     {
       "key": "audience",
@@ -66,12 +66,17 @@
       {
         "id": "t12",
         "name": "進階 ★★",
-        "color": "#f59e0b"
+        "color": "#0a9bf5"
       },
       {
         "id": "t13",
-        "name": "專業 ★★★",
-        "color": "#ef4444"
+        "name": "高級 ★★★",
+        "color": "#fd9608"
+      },
+      {
+        "id": "t31",
+        "name": "專精 ★★★★",
+        "color": "#ff0505"
       }
     ],
     "attribute": [
