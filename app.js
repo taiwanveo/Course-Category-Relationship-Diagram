@@ -178,9 +178,40 @@ function normalizeTagLibraryDoc(raw) {
     return out;
 }
 
-async function loadTagLibraryDoc() {
+// ⚑ 本機合併資料尚未 commit 到伺服器的旗標。
+//   addonPending=true 時：boot 優先讀 cache（內含 migrate 合併結果），不被伺服器覆蓋；
+//   owner 按「儲存到伺服器」成功後會自動清除此旗標。
+const ADDON_PENDING_KEY = 'ccrd:tagdoc:addon-pending';
+function hasPendingTagAddon() {
+    try { return localStorage.getItem(ADDON_PENDING_KEY) === '1'; } catch (e) { return false; }
+}
+function setPendingTagAddon(v) {
+    try {
+        if (v) localStorage.setItem(ADDON_PENDING_KEY, '1');
+        else localStorage.removeItem(ADDON_PENDING_KEY);
+    } catch (e) { /* ignore */ }
+}
+
+async function loadTagLibraryDoc(opts) {
+    opts = opts || {};
+    const forceFetch = !!opts.forceFetch;     // 「重新載入」按鈕用：忽略 pending 強制拉伺服器
+    const addonPending = hasPendingTagAddon();
     let lastErr = null;
-    // 1) 嘗試 fetch ./data/tags.json
+
+    // ⓪ 有本機尚未 commit 的合併資料 → 優先用 cache（除非強制重抓）
+    if (addonPending && !forceFetch) {
+        try {
+            const cached = await AppStorage.kvGet('tagLibraryCache');
+            if (cached && (cached.tagLibrary || cached.categories)) {
+                const doc = normalizeTagLibraryDoc(cached);
+                window.tagLibraryDoc = doc;
+                console.info('[tags] 使用本機合併版本（有未 commit 的 addon，revision ' + doc.revision + '）');
+                return { source: 'cache-with-addon', doc };
+            }
+        } catch (e) { /* fall through */ }
+    }
+
+    // ① 嘗試 fetch ./data/tags.json
     try {
         const res = await fetch(TAGS_JSON_PATH + '?t=' + Date.now(), { cache: 'no-cache' });
         if (res && res.ok) {
@@ -188,11 +219,13 @@ async function loadTagLibraryDoc() {
             const doc = normalizeTagLibraryDoc(raw);
             window.tagLibraryDoc = doc;
             try { await AppStorage.kvSet('tagLibraryCache', doc); } catch (e) { /* ignore */ }
+            // 強制重抓成功 → 清除 pending 旗標（使用者已選擇放棄本機 addon）
+            if (forceFetch) setPendingTagAddon(false);
             return { source: 'server', doc };
         }
         lastErr = new Error('HTTP ' + (res && res.status));
     } catch (e) { lastErr = e; }
-    // 2) 退而求其次：IndexedDB cache
+    // ② 退而求其次：IndexedDB cache
     try {
         const cached = await AppStorage.kvGet('tagLibraryCache');
         if (cached && (cached.tagLibrary || cached.categories)) {
@@ -202,11 +235,173 @@ async function loadTagLibraryDoc() {
             return { source: 'cache', doc };
         }
     } catch (e) { /* ignore */ }
-    // 3) 兜底：內建預設
+    // ③ 兜底：內建預設
     const doc = buildDefaultTagLibraryDoc();
     window.tagLibraryDoc = doc;
     if (lastErr) console.warn('[tags] 使用預設標籤庫（線上與快取皆無）', lastErr);
     return { source: 'default', doc };
+}
+
+// ============================================================
+// 一次性遷移：從 IndexedDB（diagrams + version snapshots）救援標籤
+// ----
+// 升級到 v3.2 前各 diagram 自帶 tagLibrary/customTagCategories/builtinCategoryLabels；
+// 若本機已開過新版且不慎觸發 save，stripDeprecatedTagFields 會把那些欄位刪掉。
+// 此函式會：
+//   1. 掃 diagrams + versions 找回所有殘留的 legacy 標籤定義（自訂類別、label override、tag id+name+color）
+//   2. 反向掃 class.tags 引用：仍有引用但中央庫沒有的 tag name → 補回（顏色從 legacy 找，否則灰色）
+//   3. 合併進中央 tagLibraryDoc，存進 IndexedDB cache，標記 addon-pending
+//   4. 提示使用者開啟「標籤管理」確認並（owner）儲存到伺服器
+// 跑過一次後寫入 flag，避免重複合併造成 label 撞回原值。
+// ============================================================
+const TAG_MIGRATION_FLAG_KEY = 'ccrd:tagdoc-migration-v1';
+
+// 把 sources（diagrams 或 snapshots 陣列）裡的 legacy 標籤資料合併進中央 tagLibraryDoc
+// 回傳統計：{ recoveredCategories, recoveredTags, recoveredFromOrphanNames, relabeledCategories }
+function harvestLegacyTagsFromSources(sources) {
+    const doc = getTagLibraryDoc();
+    const stats = { recoveredCategories: 0, recoveredTags: 0, recoveredFromOrphanNames: 0, relabeledCategories: 0 };
+    if (!Array.isArray(sources) || !sources.length) return stats;
+
+    // 1) 自訂類別
+    sources.forEach(src => {
+        if (!src) return;
+        (src.customTagCategories || []).forEach(cc => {
+            if (!cc || !cc.key) return;
+            if (doc.categories.find(c => c.key === cc.key)) return;
+            if (doc.categories.length >= MAX_CATEGORIES) return;
+            doc.categories.push({ key: cc.key, label: cc.label || cc.key, order: doc.categories.length });
+            if (!Array.isArray(doc.tagLibrary[cc.key])) doc.tagLibrary[cc.key] = [];
+            stats.recoveredCategories++;
+        });
+    });
+
+    // 2) builtin label override（中央仍是預設 label 才覆蓋）
+    sources.forEach(src => {
+        if (!src) return;
+        const ll = src.builtinCategoryLabels || {};
+        Object.keys(ll).forEach(k => {
+            const c = doc.categories.find(x => x.key === k);
+            if (!c) return;
+            const defaultLabel = TAG_CATEGORY_LABELS[k];
+            if (c.label === defaultLabel && ll[k] && ll[k] !== defaultLabel) {
+                c.label = ll[k];
+                stats.relabeledCategories++;
+            }
+        });
+    });
+
+    // 3) legacy tagLibrary 補標籤（以 name 比對避免重複）
+    sources.forEach(src => {
+        if (!src) return;
+        const lib = src.tagLibrary;
+        if (!lib || typeof lib !== 'object') return;
+        Object.keys(lib).forEach(cat => {
+            if (!doc.tagLibrary[cat]) return;
+            (lib[cat] || []).forEach(t => {
+                if (!t || !t.name) return;
+                if (doc.tagLibrary[cat].find(x => x.name === t.name)) return;
+                doc.tagLibrary[cat].push({ id: nextTagId(), name: t.name, color: t.color || '#94a3b8' });
+                stats.recoveredTags++;
+            });
+        });
+    });
+
+    // 4) 反向掃 class.tags：仍引用但庫裡沒有的 tag name → 補進去（顏色從 legacy 找）
+    const orphanColorMap = {};
+    sources.forEach(src => {
+        if (!src) return;
+        const lib = src.tagLibrary || {};
+        Object.keys(lib).forEach(cat => {
+            if (!orphanColorMap[cat]) orphanColorMap[cat] = {};
+            (lib[cat] || []).forEach(t => {
+                if (t && t.name && t.color) orphanColorMap[cat][t.name] = t.color;
+            });
+        });
+    });
+    sources.forEach(src => {
+        if (!src) return;
+        (src.components || []).forEach(c => {
+            if (c.type !== 'course-category' || !c.props || !Array.isArray(c.props.classes)) return;
+            c.props.classes.forEach(cl => {
+                if (!cl.tags) return;
+                Object.keys(cl.tags).forEach(cat => {
+                    if (!doc.tagLibrary[cat]) return;
+                    (cl.tags[cat] || []).forEach(name => {
+                        if (!name) return;
+                        if (doc.tagLibrary[cat].find(x => x.name === name)) return;
+                        const color = (orphanColorMap[cat] && orphanColorMap[cat][name]) || '#94a3b8';
+                        doc.tagLibrary[cat].push({ id: nextTagId(), name, color });
+                        stats.recoveredFromOrphanNames++;
+                    });
+                });
+            });
+        });
+    });
+
+    return stats;
+}
+
+async function migrateLegacyTagLibrariesOnce() {
+    try {
+        if (localStorage.getItem(TAG_MIGRATION_FLAG_KEY) === 'done') return null;
+    } catch (e) { /* localStorage 不可用就直接執行一次也無妨 */ }
+
+    try {
+        // 收集所有來源（diagrams + versions.snapshot）
+        const diagrams = await AppStorage.listDiagrams();
+        const sources = diagrams.slice();
+        let snapshotCount = 0;
+        for (const d of diagrams) {
+            try {
+                const versions = await AppStorage.listVersions(d.id);
+                versions.forEach(v => {
+                    if (v && v.snapshot) { sources.push(v.snapshot); snapshotCount++; }
+                });
+            } catch (e) { /* ignore */ }
+        }
+
+        const stats = harvestLegacyTagsFromSources(sources);
+        stats.scannedDiagrams = diagrams.length;
+        stats.scannedVersions = snapshotCount;
+        const recovered = stats.recoveredCategories + stats.recoveredTags + stats.recoveredFromOrphanNames + stats.relabeledCategories;
+
+        if (recovered > 0) {
+            try { await AppStorage.kvSet('tagLibraryCache', getTagLibraryDoc()); } catch (e) { /* ignore */ }
+            setPendingTagAddon(true);
+            console.info('[tags-migration] 救援報告', stats);
+        }
+        try { localStorage.setItem(TAG_MIGRATION_FLAG_KEY, 'done'); } catch (e) { /* ignore */ }
+        return { stats, recovered };
+    } catch (e) {
+        console.error('[tags-migration] 失敗', e);
+        return null;
+    }
+}
+
+// 匯入時呼叫：先把 legacy 標籤資料抓回中央 doc，再讓 stripDeprecatedTagFields 拋掉欄位
+async function harvestLegacyTagsFromImport(payload, opts) {
+    opts = opts || {};
+    const label = opts.label || '匯入資料';
+    try {
+        const sources = Array.isArray(payload) ? payload : [payload];
+        const stats = harvestLegacyTagsFromSources(sources);
+        const recovered = stats.recoveredCategories + stats.recoveredTags + stats.recoveredFromOrphanNames + stats.relabeledCategories;
+        if (recovered > 0) {
+            try { await AppStorage.kvSet('tagLibraryCache', getTagLibraryDoc()); } catch (e) { /* ignore */ }
+            setPendingTagAddon(true);
+            const parts = [];
+            if (stats.recoveredCategories) parts.push(`${stats.recoveredCategories} 個自訂類別`);
+            if (stats.recoveredTags) parts.push(`${stats.recoveredTags} 個標籤定義`);
+            if (stats.recoveredFromOrphanNames) parts.push(`${stats.recoveredFromOrphanNames} 個僅引用的標籤名稱`);
+            if (stats.relabeledCategories) parts.push(`${stats.relabeledCategories} 個類別名稱`);
+            toast(`從${label}合併了：${parts.join('、')}。請開啟「標籤」Modal 並（owner）按「儲存到伺服器」`, 'success');
+        }
+        return stats;
+    } catch (e) {
+        console.warn('harvestLegacyTagsFromImport 失敗', e);
+        return null;
+    }
 }
 
 // ============================================================
@@ -439,7 +634,23 @@ async function boot() {
         toast(`目前使用本地標籤快取（revision ${tagLoadResult.doc.revision}）— 線上載入失敗`, 'warning');
     } else if (tagLoadResult.source === 'default') {
         toast('找不到線上標籤庫，已使用內建預設', 'info');
+    } else if (tagLoadResult.source === 'cache-with-addon') {
+        // 安靜：使用者已知道有 pending addon（標籤管理 Modal 會明顯標示）
     }
+
+    // 一次性救援：升級到 v3.2 前殘留在 diagrams / version snapshots 內的標籤定義救回
+    try {
+        const mig = await migrateLegacyTagLibrariesOnce();
+        if (mig && mig.recovered > 0) {
+            const s = mig.stats;
+            const parts = [];
+            if (s.recoveredCategories) parts.push(`${s.recoveredCategories} 個自訂類別`);
+            if (s.recoveredTags) parts.push(`${s.recoveredTags} 個標籤定義`);
+            if (s.recoveredFromOrphanNames) parts.push(`${s.recoveredFromOrphanNames} 個僅引用的標籤名稱（顏色為灰色 placeholder）`);
+            if (s.relabeledCategories) parts.push(`${s.relabeledCategories} 個類別名稱`);
+            toast(`已從本機 ${s.scannedDiagrams} 張舊圖 + ${s.scannedVersions} 個版本快照救回：${parts.join('、')}。請開啟「標籤」Modal 確認並（owner）按「儲存到伺服器」`, 'success');
+        }
+    } catch (e) { console.warn('救援標籤失敗', e); }
 
     // 載入最近的 diagram
     let lastId = AppStorage.Settings.getLastDiagramId();
@@ -4002,12 +4213,27 @@ function renderTagManagerStatus() {
     const doc = getTagLibraryDoc();
     const owner = isOwnerMode();
     const revText = `revision ${doc.revision || 0}`;
+    const pending = hasPendingTagAddon();
+    // 「需要儲存」= 本次 modal 內動過 (dirty)，或本機有從舊版救援回來但還沒上傳的 addon
+    const needSave = tagLibraryDocDirty || pending;
+
+    let pendingBanner = '';
+    if (pending) {
+        const ownerHint = owner
+            ? '請檢視標籤後按「儲存到伺服器」上傳，其他訪客即可看到。'
+            : '需請維護者（owner）登入後上傳到伺服器。在那之前，本機資料安全（不會被伺服器版本覆蓋）。';
+        pendingBanner = `<div style="flex-basis:100%;padding:8px 12px;background:#fef3c7;color:#92400e;border-radius:8px;font-size:12px;font-weight:600;line-height:1.6;">
+            ⚠ 偵測到本機從舊版救回的標籤資料尚未同步到伺服器。${escapeHtml(ownerHint)}
+        </div>`;
+    }
+
     if (owner) {
         bar.innerHTML = `
+            ${pendingBanner}
             <span class="status-badge owner">✏ 維護者模式</span>
-            <span class="status-rev">標籤庫 ${escapeHtml(revText)}${tagLibraryDocDirty ? '（有未儲存的變更）' : ''}</span>
+            <span class="status-rev">標籤庫 ${escapeHtml(revText)}${needSave ? '（有未儲存的變更）' : ''}</span>
             <span style="flex:1;"></span>
-            <button id="tag-doc-save" class="btn btn-small btn-primary" ${tagLibraryDocDirty ? '' : 'disabled'} title="把目前 tagLibraryDoc commit 到 GitHub repo">儲存到伺服器</button>
+            <button id="tag-doc-save" class="btn btn-small btn-primary" ${needSave ? '' : 'disabled'} title="把目前 tagLibraryDoc commit 到 GitHub repo">儲存到伺服器</button>
             <button id="tag-doc-reload" class="btn btn-small" title="從伺服器重新載入最新版（會放棄未儲存的變更）">重新載入</button>
             <button id="tag-doc-reset" class="btn btn-small" title="把標籤庫重設為原廠預設（不會自動儲存）">↺ 原廠預設</button>
             <button id="tag-doc-download" class="btn btn-small" title="下載目前 tagLibraryDoc 為 tags.json（供初次部署或備份）">⬇ 下載 tags.json</button>
@@ -4022,8 +4248,9 @@ function renderTagManagerStatus() {
         if (db) db.addEventListener('click', () => handleTagDocDownload());
     } else {
         bar.innerHTML = `
+            ${pendingBanner}
             <span class="status-badge readonly">🔒 唯讀</span>
-            <span class="status-rev">標籤庫 ${escapeHtml(revText)} — 由維護者集中管理</span>
+            <span class="status-rev">標籤庫 ${escapeHtml(revText)} — 由維護者集中管理${pending ? '（含本機暫存）' : ''}</span>
             <span style="flex:1;"></span>
             <button id="tag-doc-pat-setup" class="btn btn-small" title="設定 GitHub PAT 以進入維護者模式">維護者設定…</button>
         `;
@@ -4219,12 +4446,13 @@ function renderTagManagerList() {
 // ============================================================
 async function handleTagDocSave() {
     if (!isOwnerMode()) { toast('尚未設定 GitHub PAT', 'warning'); return; }
-    if (!tagLibraryDocDirty) { toast('沒有需要儲存的變更', 'info'); return; }
+    if (!tagLibraryDocDirty && !hasPendingTagAddon()) { toast('沒有需要儲存的變更', 'info'); return; }
     const btn = document.getElementById('tag-doc-save');
     if (btn) { btn.disabled = true; btn.textContent = '儲存中…'; }
     try {
         const newDoc = await commitTagLibraryDocToGitHub();
         tagLibraryDocDirty = false;
+        setPendingTagAddon(false); // commit 成功 → 清除「本機 addon 未同步」旗標
         toast(`已儲存到伺服器（revision ${newDoc.revision}）`, 'success');
     } catch (e) {
         console.error(e);
@@ -4235,8 +4463,12 @@ async function handleTagDocSave() {
 }
 
 async function handleTagDocReload() {
-    if (tagLibraryDocDirty && !confirm('重新載入會放棄目前未儲存的變更，確定？')) return;
-    const result = await loadTagLibraryDoc();
+    const hasAddon = hasPendingTagAddon();
+    let msg = null;
+    if (tagLibraryDocDirty) msg = '重新載入會放棄目前未儲存的變更，確定？';
+    else if (hasAddon) msg = '本機目前有「尚未 commit 到伺服器」的合併結果（例如剛從舊資料救回的標籤）。\n\n按確定 → 從伺服器強制重抓，本機合併會被丟棄。\n按取消 → 保留本機合併。';
+    if (msg && !confirm(msg)) return;
+    const result = await loadTagLibraryDoc({ forceFetch: true });
     tagLibraryDocDirty = false;
     renderTagManagerStatus();
     renderTagManagerTabs();
@@ -9394,6 +9626,8 @@ async function importDiagramJson(data) {
     // 確保結構
     if (!data.id) data.id = AppStorage.generateUUID();
     if (!data.assets) data.assets = {};
+    // 先把 legacy 標籤資料合併到中央 tagLibraryDoc（救援）
+    await harvestLegacyTagsFromImport(data, { label: `分類圖「${data.name || data.id}」` });
     // .ccrd / 單張圖匯入：拋除 deprecated 欄位（tagLibrary 等），保留 tagSnapshot 作 fallback
     stripDeprecatedTagFields(data);
     const existing = await AppStorage.getDiagram(data.id);
@@ -9440,6 +9674,8 @@ async function importEnv(env) {
     const diagCount = (env.diagrams || []).length;
     const keyCount = (env.apiKeys || []).length;
     if (!confirm(`即將匯入完整環境（含 ${diagCount} 張分類圖、${keyCount} 把 API Key）。\n會疊加到目前資料庫，相同 ID 視為衝突逐一詢問。是否繼續？\n\n注意：v3.2 起的 env JSON 不含標籤資料，標籤庫請至本網站線上版自動同步。`)) return;
+    // 匯入前先把整批 diagrams 內的 legacy 標籤資料合併到中央 tagLibraryDoc
+    await harvestLegacyTagsFromImport(env.diagrams || [], { label: '匯入環境' });
     let imported = 0, skipped = 0;
     for (const d of (env.diagrams || [])) {
         // 為了安全，移除任何可能殘留的 deprecated 欄位
