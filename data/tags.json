@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": 8,
-  "updatedAt": "2026-05-11T03:35:11.624Z",
+  "revision": 9,
+  "updatedAt": "2026-05-11T03:37:20.346Z",
   "categories": [
     {
       "key": "audience",
@@ -83,7 +83,7 @@
       {
         "id": "t14",
         "name": "問（會問問題、下好提示詞、拆解任務）",
-        "color": "#06b6d4"
+        "color": "#13cbec"
       },
       {
         "id": "t15",
