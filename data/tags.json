@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": 9,
-  "updatedAt": "2026-05-11T03:37:20.346Z",
+  "revision": 10,
+  "updatedAt": "2026-05-11T03:51:04.694Z",
   "categories": [
     {
       "key": "audience",
@@ -105,7 +105,7 @@
       {
         "id": "t18",
         "name": "AI基礎概念",
-        "color": "#3b82f6"
+        "color": "#00ff6e"
       },
       {
         "id": "t19",
@@ -115,12 +115,12 @@
       {
         "id": "t20",
         "name": "提示工程",
-        "color": "#8b5cf6"
+        "color": "#ae97e2"
       },
       {
         "id": "t21",
         "name": "AI 辦公應用",
-        "color": "#a855f7"
+        "color": "#f39120"
       },
       {
         "id": "t22",
@@ -140,7 +140,7 @@
       {
         "id": "t25",
         "name": "流程自動化",
-        "color": "#dc2626"
+        "color": "#b37305"
       },
       {
         "id": "t32",
@@ -150,27 +150,27 @@
       {
         "id": "t33",
         "name": "模型訓練與微調",
-        "color": "#ff0505"
+        "color": "#280bbc"
       },
       {
         "id": "t34",
         "name": "資料科學與機器學習",
-        "color": "#ff0505"
+        "color": "#704d93"
       },
       {
         "id": "t35",
         "name": "AI 維運與 LLMOps",
-        "color": "#ff0505"
+        "color": "#a47cee"
       },
       {
         "id": "t36",
         "name": "AI 安全",
-        "color": "#ff0505"
+        "color": "#ce0909"
       },
       {
         "id": "t37",
         "name": "AI 治理與法遵",
-        "color": "#ff0505"
+        "color": "#765151"
       },
       {
         "id": "t38",
@@ -190,7 +190,7 @@
       {
         "id": "t41",
         "name": "AI 趨勢與策略",
-        "color": "#ff0505"
+        "color": "#20ce09"
       }
     ],
     "format": [
