@@ -41,3 +41,6 @@ course-category-env-*.json
 
 # 第三方設計參考資料庫（本地保留即可，不需推上 GitHub）
 awesome-design-md-main/
+
+.firecrawl/
+

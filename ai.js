@@ -109,14 +109,19 @@ window.AppAI = (function () {
     // Provider 設定
     // ============================================================
     // 注意：fallbackModels 僅在 API 抓取失敗時做最後備援，實際以即時抓取為準。
+    // 最後依據官方文件人工同步：2026-05-09（資料來源：
+    //   - https://platform.openai.com/docs/models
+    //   - https://ai.google.dev/gemini-api/docs/models
+    //   - https://docs.x.ai/docs/models
+    // ）。新模型發表時請重新同步。
     const PROVIDERS = {
         openai: {
             id: 'openai',
             name: 'OpenAI',
             badges: ['付費', '回應穩定', '分類品質高', '額度依方案'],
-            defaultModel: 'gpt-4o-mini',
-            fallbackModels: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini', 'gpt-4.1', 'o3-mini', 'o1-mini'],
-            description: '需要 OpenAI 帳號 API Key（sk-...）。gpt-4o-mini 為最經濟選擇，適合大量分類任務。',
+            defaultModel: 'gpt-5.4-mini',
+            fallbackModels: ['gpt-5.4-mini', 'gpt-5.4-nano', 'gpt-5.4', 'gpt-5.5', 'gpt-4o-mini', 'gpt-4o'],
+            description: '需要 OpenAI 帳號 API Key（sk-...）。gpt-5.4-mini 為兼顧品質與成本的推薦選擇，gpt-5.5 為當前旗艦推理模型。',
             keyHint: 'sk-...',
             docs: 'https://platform.openai.com/api-keys'
         },
@@ -124,9 +129,9 @@ window.AppAI = (function () {
             id: 'gemini',
             name: 'Google Gemini',
             badges: ['有免費額度', '回應快速', '對中文友好'],
-            defaultModel: 'gemini-1.5-flash',
-            fallbackModels: ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-pro'],
-            description: 'Google AI Studio 提供免費額度，flash 系列回應快速。需要 Google AI Studio API Key。',
+            defaultModel: 'gemini-2.5-flash',
+            fallbackModels: ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro', 'gemini-3.1-flash-lite', 'gemini-flash-latest'],
+            description: 'Google AI Studio 提供免費額度，flash 系列回應快速。Gemini 1.5 系列已退役，2.0 flash 已標記為 Deprecated（棄用）。',
             keyHint: 'AIza...',
             docs: 'https://aistudio.google.com/apikey'
         },
@@ -134,9 +139,9 @@ window.AppAI = (function () {
             id: 'grok',
             name: 'xAI Grok',
             badges: ['付費', '較長 context', '訓練資料較新'],
-            defaultModel: 'grok-2-latest',
-            fallbackModels: ['grok-2-latest', 'grok-3', 'grok-4', 'grok-beta'],
-            description: 'xAI 平台 API Key（xai-...），訓練資料較新但成本較高。',
+            defaultModel: 'grok-4.3',
+            fallbackModels: ['grok-4.3', 'grok-4.20-0309-reasoning', 'grok-4.20-0309-non-reasoning', 'grok-4.20-multi-agent-0309', 'grok-4-1-fast-reasoning', 'grok-4-1-fast-non-reasoning'],
+            description: 'xAI 平台 API Key（xai-...）。官方建議 API 用戶優先使用 grok-4.3。注意：grok-4 / grok-4-fast / grok-4-1-fast / grok-code-fast-1 已於 2026-05-15 退役（retired）。',
             keyHint: 'xai-...',
             docs: 'https://console.x.ai/'
         },
