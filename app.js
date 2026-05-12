@@ -6844,7 +6844,7 @@ function editorApplyFilter() {
     if (!editorFilteredView) {
         document.body.classList.remove('filter-active');
         container.querySelectorAll('.component').forEach(el => el.classList.remove('filter-dimmed', 'filter-hit'));
-        document.querySelectorAll('.connector-path').forEach(el => el.classList.remove('filter-dimmed'));
+        document.querySelectorAll('.connector-path,.connector-label,.connector-label-bg').forEach(el => el.classList.remove('filter-dimmed'));
         const stats = document.getElementById('editor-filter-stats');
         if (stats) stats.innerHTML = FILTER_STATS_EYE_SVG + '<span class="filter-stats-text">全部</span>';
         editorUpdateFilterBadge(0);
@@ -6862,30 +6862,17 @@ function editorApplyFilter() {
             return;
         }
         if (visible.has(id)) {
-            const hits = (editorFilteredView.classMatchMap[id] || []).length;
             el.classList.remove('filter-dimmed');
-            if (hits > 0 || editorCardLevelMatchesAll(comp)) el.classList.add('filter-hit');
-            else el.classList.remove('filter-hit');
+            el.classList.add('filter-hit');
         } else {
             el.classList.add('filter-dimmed');
             el.classList.remove('filter-hit');
         }
     });
-    // 連線：兩端可見才不 dim
+    // 連線：篩選啟動時一律降透明，避免未篩選的關係線搶走視覺焦點
     const group = document.getElementById('connector-group');
     if (group) {
-        const paths = group.querySelectorAll('path.connector-path');
-        let pi = 0;
-        projectData.connectors.forEach(conn => {
-            const path = paths[pi++];
-            if (!path) return;
-            const fComp = getComponent(conn.fromComponentId);
-            const tComp = getComponent(conn.toComponentId);
-            const fOk = !fComp || fComp.type !== 'course-category' || visible.has(conn.fromComponentId);
-            const tOk = !tComp || tComp.type !== 'course-category' || visible.has(conn.toComponentId);
-            if (fOk && tOk) path.classList.remove('filter-dimmed');
-            else path.classList.add('filter-dimmed');
-        });
+        group.querySelectorAll('.connector-path,.connector-label,.connector-label-bg').forEach(el => el.classList.add('filter-dimmed'));
     }
     const stats = document.getElementById('editor-filter-stats');
     if (stats) stats.innerHTML = FILTER_STATS_EYE_SVG + '<span class="filter-stats-text">班名 <b>' + editorFilteredView.matchedClasses + '</b> / ' + editorFilteredView.totalClasses + '，類別卡片 <b>' + visible.size + '</b></span>';
@@ -8276,10 +8263,17 @@ ${faviconLinks}
 body.fullscreen-mode .search-toggle-btn { top: 116px; right: 12px; z-index: 9990; }
 body.fullscreen-mode .search-panel { top: 64px; right: 12px; z-index: 9991; }
 
-/* 篩選結果視覺提示 */
+/* 篩選結果視覺提示：命中卡片用橘色粗框，未命中卡片與連線降透明 */
 .component.filter-dimmed { opacity: 0.18; filter: saturate(0.4); transition: opacity 0.25s, filter 0.25s; }
-.component.filter-hit { box-shadow: 0 0 0 3px rgba(99,102,241,0.45), 0 6px 18px -4px rgba(99,102,241,0.5) !important; }
-.connector-path.filter-dimmed { opacity: 0.15; transition: opacity 0.25s; }
+.component.filter-hit {
+    box-shadow:
+        0 0 0 5px rgba(249,115,22,0.95),
+        0 0 0 9px rgba(255,237,213,0.9),
+        0 10px 24px -8px rgba(249,115,22,0.85) !important;
+}
+.connector-path.filter-dimmed,
+.connector-label.filter-dimmed,
+.connector-label-bg.filter-dimmed { opacity: 0.15; transition: opacity 0.25s; }
 .filter-active .component:not(.filter-dimmed):not(.filter-hit) { opacity: 0.95; }
 
 /* 班名 popup 篩選提示 */
@@ -8897,7 +8891,7 @@ function buildViewerScript() {
         if (!filteredView) {
             document.body.classList.remove('filter-active');
             container.querySelectorAll('.component').forEach(el => el.classList.remove('filter-dimmed', 'filter-hit'));
-            document.querySelectorAll('.connector-path').forEach(el => el.classList.remove('filter-dimmed'));
+            document.querySelectorAll('.connector-path,.connector-label,.connector-label-bg').forEach(el => el.classList.remove('filter-dimmed'));
             const stats = document.getElementById('filter-stats');
             if (stats) stats.innerHTML = FILTER_STATS_EYE_SVG + '<span class="filter-stats-text">全部</span>';
             updateFilterBadge(0);
@@ -8919,34 +8913,16 @@ function buildViewerScript() {
                 return;
             }
             if (visible.has(id)) {
-                const hits = (filteredView.classMatchMap[id] || []).length;
                 el.classList.remove('filter-dimmed');
-                if (hits > 0 || cardLevelMatchesAll(comp)) el.classList.add('filter-hit');
-                else el.classList.remove('filter-hit');
+                el.classList.add('filter-hit');
             } else {
                 el.classList.add('filter-dimmed');
                 el.classList.remove('filter-hit');
             }
         });
-        // 連線：兩端都是可見類別卡才顯示
-        document.querySelectorAll('.connector-path').forEach(el => {
-            // 我們在 renderConns 內未綁定 connector id；改用 group children 索引
-            // 簡化：以連線兩端點 id 重新判斷
-        });
-        // 重新走訪 connectors 套用 dim
+        // 連線：篩選啟動時一律降透明，避免未篩選的關係線搶走視覺焦點
         const group = document.getElementById('connector-group');
-        const paths = group.querySelectorAll('path');
-        let pi = 0;
-        projectData.connectors.forEach(conn => {
-            const path = paths[pi++];
-            if (!path) return;
-            const from = conn.fromComponentId, to = conn.toComponentId;
-            const fComp = getComp(from), tComp = getComp(to);
-            const fOk = !fComp || fComp.type !== 'course-category' || visible.has(from);
-            const tOk = !tComp || tComp.type !== 'course-category' || visible.has(to);
-            if (fOk && tOk) path.classList.remove('filter-dimmed');
-            else path.classList.add('filter-dimmed');
-        });
+        if (group) group.querySelectorAll('.connector-path,.connector-label,.connector-label-bg').forEach(el => el.classList.add('filter-dimmed'));
         // 統計
         const stats = document.getElementById('filter-stats');
         if (stats) stats.innerHTML = FILTER_STATS_EYE_SVG + '<span class="filter-stats-text">班名 <b>' + filteredView.matchedClasses + '</b> / ' + filteredView.totalClasses + '，類別卡片 <b>' + visible.size + '</b></span>';
