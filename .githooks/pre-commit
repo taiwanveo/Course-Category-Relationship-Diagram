@@ -1,0 +1,21 @@
+#!/bin/sh
+# 確保 export-bundle.js 與 app.css / 匯出圖示同步（見 AGENTS.md）。
+# 啟用方式（每個 clone 一次）：git config core.hooksPath .githooks
+
+SOURCES='^(app\.css|assets/(dot|dots|classification)\.png|export-bundle\.js)$'
+git diff --cached --name-only | grep -Eq "$SOURCES" || exit 0
+
+if ! command -v node >/dev/null 2>&1; then
+    echo "[pre-commit] 找不到 node，略過 export-bundle.js 同步檢查" >&2
+    exit 0
+fi
+
+if ! node tools/build-export-bundle.js --check; then
+    echo "[pre-commit] 請執行 node tools/build-export-bundle.js，並把 export-bundle.js 一起 git add" >&2
+    exit 1
+fi
+
+if ! git diff --quiet -- export-bundle.js; then
+    echo "[pre-commit] export-bundle.js 有未暫存的變更，請 git add export-bundle.js" >&2
+    exit 1
+fi

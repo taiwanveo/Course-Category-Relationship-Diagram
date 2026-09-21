@@ -1,2 +1,5 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# git hook 腳本必須是 LF，否則 #!/bin/sh 會因  無法執行
+.githooks/* text eol=lf

@@ -173,6 +173,8 @@ npx --yes http-server -p 8080 -c-1
 ```
 
 > 修改 `app.css` 或 `assets/dot.png`、`dots.png`、`classification.png` 後，請執行 `node tools/build-export-bundle.js` 重新產生 `export-bundle.js` 並一併 commit；`--check` 可檢查是否同步。
+>
+> 啟用 commit 前自動檢查（每個 clone 執行一次）：`git config core.hooksPath .githooks`
 
 ---
 
