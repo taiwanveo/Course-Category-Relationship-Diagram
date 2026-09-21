@@ -7975,11 +7975,18 @@ async function exportHTML() {
         const safeTagDoc = JSON.stringify(getTagLibraryDoc()).replace(/<\/script>/gi, '<\\/script>').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
         let css = '';
         try { const r = await fetch('app.css'); if (r.ok) css = await r.text(); } catch (e) {}
+        // file:// 開啟時 fetch 本機檔案會被 CORS 擋下 → 改用 export-bundle.js（<script> 載入不受限）
+        const bundle = css ? null : await loadExportBundle();
+        if (!css && bundle) css = bundle.css || '';
+        if (!css) {
+            toast('匯出 HTML 失敗：讀不到 app.css，匯出檔會是空白畫面。請改用本機伺服器開啟（例如 python -m http.server 8080 後開 http://localhost:8080），或確認 export-bundle.js 存在。', 'error');
+            return;
+        }
         // 把 dot.png / dots.png 轉成 base64 data URI 內嵌（讓匯出的 HTML 可獨立執行不依賴 assets/）
         async function fetchAsDataURI(path) {
             try {
                 const r = await fetch(path);
-                if (!r.ok) return '';
+                if (!r.ok) throw new Error(r.status);
                 const blob = await r.blob();
                 return await new Promise((resolve) => {
                     const fr = new FileReader();
@@ -7987,11 +7994,15 @@ async function exportHTML() {
                     fr.onerror = () => resolve('');
                     fr.readAsDataURL(blob);
                 });
-            } catch (e) { return ''; }
+            } catch (e) {
+                const b = bundle || await loadExportBundle();
+                return (b && b.images && b.images[path.split('?')[0]]) || '';
+            }
         }
         const dotDataURI = await fetchAsDataURI('assets/dot.png');
         const dotsDataURI = await fetchAsDataURI('assets/dots.png');
         const faviconDataURI = await fetchAsDataURI('assets/classification.png?v=' + Date.now());
+        const missingImages = [dotDataURI, dotsDataURI, faviconDataURI].filter(u => !u).length;
         const viewerScript = buildViewerScript();
         const currentViewMode = AppStorage.Settings.getViewMode();
         const faviconLinks = faviconDataURI
@@ -8477,8 +8488,25 @@ body.fullscreen-mode.fs-pen-active .fs-color-swatches { display: inline-flex; }
 </body></html>`;
         const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
         downloadBlob(blob, (projectData.name || 'diagram') + '.html');
-        toast('已匯出 HTML（含標籤篩選器）', 'success');
+        if (missingImages) toast('已匯出 HTML，但有 ' + missingImages + ' 張圖示未能內嵌（不影響分類圖內容）', 'warning');
+        else toast('已匯出 HTML（含標籤篩選器）', 'success');
     } catch (err) { console.error(err); toast('匯出 HTML 失敗：' + err.message, 'error'); }
+}
+
+// 載入 export-bundle.js（由 tools/build-export-bundle.js 產生），失敗回傳 null。只載入一次。
+let _exportBundlePromise = null;
+function loadExportBundle() {
+    if (window.__EXPORT_BUNDLE__) return Promise.resolve(window.__EXPORT_BUNDLE__);
+    if (!_exportBundlePromise) {
+        _exportBundlePromise = new Promise((resolve) => {
+            const s = document.createElement('script');
+            s.src = 'export-bundle.js';
+            s.onload = () => resolve(window.__EXPORT_BUNDLE__ || null);
+            s.onerror = () => { _exportBundlePromise = null; resolve(null); };
+            document.head.appendChild(s);
+        });
+    }
+    return _exportBundlePromise;
 }
 
 function buildViewerScript() {

@@ -146,7 +146,7 @@
 
 ### 本機開發伺服器（建議）
 
-「匯出 HTML」會 fetch `app.css` 內嵌；用 `file://` 直開可能受 CORS 限制。建議用簡單 HTTP server：
+「匯出 HTML」會把 `app.css` 與圖示內嵌進匯出檔。用 `file://` 直開時瀏覽器會擋下讀取本機檔案，此時改用預先打包的 `export-bundle.js` 作為備援，因此雙擊開啟也能正常匯出。仍建議用簡單 HTTP server（其他功能如同站 `data/tags.json` 也需要）：
 
 ```bash
 # Python 3
@@ -167,8 +167,12 @@ npx --yes http-server -p 8080 -c-1
 ├── app.js          主應用邏輯（多分類圖、班名、popup、版型、匯出）
 ├── storage.js      Dexie.js 儲存抽象（diagrams/versions/apiKeys/aiCache）
 ├── ai.js           AI 整合（Web Crypto 加密、3 家 + Mock 提供商）
+├── export-bundle.js  自動產生：app.css + 圖示打包，供 file:// 下匯出 HTML 使用
+├── tools/build-export-bundle.js  產生／檢查 export-bundle.js
 └── README.md
 ```
+
+> 修改 `app.css` 或 `assets/dot.png`、`dots.png`、`classification.png` 後，請執行 `node tools/build-export-bundle.js` 重新產生 `export-bundle.js` 並一併 commit；`--check` 可檢查是否同步。
 
 ---
 
